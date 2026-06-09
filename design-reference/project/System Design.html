@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Design — Air Quality Monitoring Density Map</title>
+<link rel="stylesheet" href="assets/doc.css">
+<template id="__bundler_thumbnail" data-bg-color="#0E7A66">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#0E7A66"/>
+    <circle cx="600" cy="380" r="150" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="14"/>
+    <circle cx="600" cy="380" r="34" fill="#E4BB36"/>
+    <rect x="360" y="600" width="480" height="20" rx="10" fill="rgba(255,255,255,.85)"/>
+    <rect x="440" y="650" width="320" height="16" rx="8" fill="rgba(255,255,255,.5)"/>
+  </svg>
+</template>
+</head>
+<body>
+<div class="lang-toggle">
+  <button data-lang="en" class="active">EN</button>
+  <button data-lang="th">ไทย</button>
+</div>
+<div class="aqi-bar"></div>
+<div class="shell">
+
+  <!-- ============ SIDEBAR TOC ============ -->
+  <aside class="toc">
+    <div class="toc-brand">
+      <img class="toc-logo-img" src="assets/logo-colored.png" alt="Open Air Foundation">
+      <div>
+        <b>Monitoring&nbsp;Density&nbsp;Map</b>
+        <span>System Design v1.0</span>
+      </div>
+    </div>
+    <nav>
+      <div class="toc-label" data-th="บริบท">Context</div>
+      <a href="#overview" data-th='<span class="n">01</span> ภาพรวมและเป้าหมาย'><span class="n">01</span> Overview &amp; Goal</a>
+      <a href="#users" data-th='<span class="n">02</span> สิ่งที่ระบบทำได้'><span class="n">02</span> What it does</a>
+      <div class="toc-label" data-th="สถาปัตยกรรม">Architecture</div>
+      <a href="#stack" data-th='<span class="n">03</span> Tech Stack'><span class="n">03</span> Tech Stack</a>
+      <a href="#architecture" data-th='<span class="n">04</span> สถาปัตยกรรมระบบ'><span class="n">04</span> System Architecture</a>
+      <a href="#dataflow" data-th='<span class="n">05</span> การไหลของข้อมูล'><span class="n">05</span> Data Flow &amp; Pipeline</a>
+      <a href="#database" data-th='<span class="n">06</span> โครงสร้างฐานข้อมูล'><span class="n">06</span> Database Schema</a>
+      <a href="#api" data-th='<span class="n">07</span> การออกแบบ API'><span class="n">07</span> API Design</a>
+      <div class="toc-label" data-th="การส่งมอบ">Delivery</div>
+      <a href="#export" data-th='<span class="n">08</span> การส่งออกข้อมูล (CSV)'><span class="n">08</span> Data Export (CSV)</a>
+      <a href="#scaling" data-th='<span class="n">09</span> แผนรองรับการขยาย'><span class="n">09</span> Scaling Plan</a>
+      <a href="#plan" data-th='<span class="n">10</span> แผนงานและ Roadmap'><span class="n">10</span> Work Plan &amp; Roadmap</a>
+      <a href="#handoff" data-th='<span class="n">11</span> ส่งต่องานพัฒนา'><span class="n">11</span> Build Handoff</a>
+    </nav>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="wrap">
+
+      <!-- ---------- HERO ---------- -->
+      <header class="hero">
+        <span class="eyebrow" data-th="Open Air Foundation · สเป็กงานสำหรับ Hackathon">Open Air Foundation · Hackathon Build Spec</span>
+        <h1 data-th='แผนที่อินเตอร์แอคทีฟแสดง <span class="hl">ความหนาแน่นของการตรวจวัดคุณภาพอากาศ</span> และความเหลื่อมล้ำที่มันเผยให้เห็น'>Interactive map for <span class="hl">air-quality monitoring density</span> &amp; the inequality it reveals</h1>
+        <p class="lede" data-th='เครื่องมือเว็บชิ้นเดียวที่ซ้อน <strong>ตำแหน่งที่มีเครื่องตรวจวัดคุณภาพอากาศจริงๆ</strong> ไว้บน <strong>ตำแหน่งที่มลพิษทางอากาศคร่าชีวิตคนมากที่สุด</strong> — ทำให้ช่องว่างของการตรวจวัดชัดเจนจนมองข้ามไม่ได้ และดาวน์โหลดข้อมูลได้สำหรับทุกคนที่ต้องการ'>A single web tool that overlays <strong>where air-quality monitors actually exist</strong> on top of <strong>where air pollution kills the most people</strong> — making the monitoring gap impossible to ignore, and downloadable for anyone who wants the data.</p>
+        <div class="hero-meta">
+          <span class="chip"><i></i>Nuxt 3 + Leaflet</span>
+          <span class="chip"><i></i>NestJS API</span>
+          <span class="chip"><i></i>PostgreSQL + PostGIS</span>
+          <span class="chip"><i></i>Nginx · Docker</span>
+          <span class="chip"><i></i>Hackathon MVP → Production roadmap</span>
+        </div>
+      </header>
+
+      <!-- ---------- 01 OVERVIEW ---------- -->
+      <section id="overview">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>01</b> · ภาพรวมและเป้าหมาย"><b>01</b> · Overview &amp; Goal</div>
+          <h2 data-th="เป้าหมายในหนึ่งประโยค">The one-sentence goal</h2>
+          <p data-th='รวม <strong>แผนที่เครื่องตรวจวัดของ AirGradient</strong> (เครื่องตรวจวัดสาธารณะทั้งหมด — ทั้ง low-cost และ reference ทุกผู้ผลิต) เข้ากับ <strong>ข้อมูลสุขภาพจาก State of Global Air</strong> (จำนวนผู้เสียชีวิตจากมลพิษทางอากาศรายประเทศ/ภูมิภาค) เพื่อให้เห็นได้ทันทีว่า พื้นที่ที่ได้รับผลกระทบมากที่สุด มักเป็นพื้นที่ที่มีการตรวจวัดน้อยที่สุด'>Combine the <strong>AirGradient monitor map</strong> (all public monitors — low-cost &amp; reference, every manufacturer) with <strong>State of Global Air health data</strong> (deaths attributable to air pollution per country/region) so a viewer can instantly see that the places suffering the most are often the places measuring the least.</p>
+        </div>
+
+        <div class="note">
+          <span class="tag" data-th="ฉบับภาษาง่าย — สำหรับคนที่ไม่ใช่สาย dev">Plain-language version — for non-developers</span>
+          <span data-th='นึกภาพว่ามี <b>แผนที่สองชั้นวางซ้อนกัน</b> ชั้นหนึ่งแสดงจุดเล็กๆของเซ็นเซอร์วัดอากาศทุกตัวทั่วโลก อีกชั้นระบายสีแต่ละประเทศตามจำนวนคนที่เสียชีวิตจากอากาศสกปรก ตรงไหนที่ <b>คนตายมากแต่จุดตรวจวัดน้อย</b> นั่นคือความเหลื่อมล้ำที่เราต้องการชี้ให้เห็น — และเป็นเหตุผลให้ติดตั้งเครื่องตรวจวัดเพิ่มในจุดนั้น'>Think of it as <b>two maps laid on top of each other</b>. One shows little dots for every air-quality sensor in the world. The other shades each country by how many people die from dirty air. Where there are <b>many deaths but few dots</b>, that's the inequality we want to highlight — and the call to put more monitors there.</span>
+        </div>
+
+        <h3 data-th="เอกสารนี้คืออะไร">What this document is</h3>
+        <p data-th='สเป็กการพัฒนาฉบับสมบูรณ์: การเลือกเทคโนโลยี วิธีที่ข้อมูลไหลผ่านระบบ การออกแบบฐานข้อมูล ตัว API วิธีขยายจากเดโม hackathon ไปสู่บริการระดับโลก ไปจนถึงแผนงานรายวัน เขียนขึ้นเพื่อส่งต่อให้ <strong>Claude Code</strong> (หรือวิศวกรคนใด) เริ่มพัฒนาได้ทันที ขณะเดียวกันก็ยังอ่านง่ายสำหรับทีมผลิตภัณฑ์และผู้มีส่วนได้เสีย'>A complete build specification: the technology choices, how data moves through the system, the database design, the API, how it scales from a hackathon demo to a global production service, and a day-by-day work plan. It is written to be handed directly to <strong>Claude Code</strong> (or any engineer) to start implementation, while staying readable for product and foundation stakeholders.</p>
+
+        <div class="grid g3" style="margin-top:24px">
+          <div class="card">
+            <span class="ico" data-th="ผลลัพธ์หลัก">Primary outcome</span>
+            <h4 data-th="ทำให้ช่องว่างชัดเจน">Make the gap striking</h4>
+            <p data-th="จับคู่ภาระโรคจากมลพิษทางอากาศกับความหนาแน่นของเครื่องตรวจต่อหัวประชากร แสดงเปรียบเทียบรายประเทศ">Visually pair pollution health burden with monitor density per capita, country by country.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="สำหรับมูลนิธิ">For the foundation</span>
+            <h4 data-th="เครื่องมือรณรงค์">A campaign asset</h4>
+            <p data-th='ฝัง (embed) ลงบนเว็บไซต์มูลนิธิได้ พร้อม story mode แบบมีไกด์ที่เน้นภูมิภาคที่ขาดการตรวจวัด'>Embeddable on the foundation website, with a guided "story mode" highlighting under-monitored regions.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="สำหรับทุกคน">For everyone</span>
+            <h4 data-th="เปิดและดาวน์โหลดได้">Open &amp; downloadable</h4>
+            <p data-th="กรองข้อมูลแบบสด และส่งออกมุมมองใดก็ได้เป็น CSV / Excel — รายการเครื่องตรวจวัด จำนวน และความหนาแน่นต่อหัวประชากร">Filter the data live and export any view to CSV / Excel — monitors, counts, per-capita density.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 02 WHAT IT DOES ---------- -->
+      <section id="users">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>02</b> · ขอบเขตผลิตภัณฑ์"><b>02</b> · Product Scope</div>
+          <h2 data-th="แผนที่แสดงอะไรและทำอะไรได้บ้าง">What the map shows &amp; does</h2>
+          <p data-th="สรุปมาจากโจทย์ hackathon โดยตรง นี่คือความสามารถฝั่งผู้ใช้ที่สถาปัตยกรรมต้องรองรับ">Derived directly from the hackathon brief. These are the user-facing capabilities the architecture must support.</p>
+        </div>
+
+        <div class="grid g2">
+          <div class="card">
+            <span class="ico" data-th="เลเยอร์แผนที่">Map layer</span>
+            <h4 data-th="เครื่องตรวจวัดสาธารณะทั้งหมด">All publicly available monitors</h4>
+            <p data-th="สถานี low-cost และ reference จากทุกผู้ผลิต ดึงผ่าน AirGradient Map API ใหม่ ระบายสีตามค่า AQI ปัจจุบัน และรวมกลุ่ม (cluster) เมื่อซูมออก">Low-cost and reference stations from every manufacturer, drawn from the new AirGradient Map API. Coloured by current AQI; clustered at low zoom.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="เลเยอร์ความหนาแน่น">Density layer</span>
+            <h4 data-th="จำนวนเครื่อง — ทั้งค่าสัมบูรณ์และต่อหัวประชากร">Monitor count — absolute &amp; per capita</h4>
+            <p data-th="แยกตามประเทศและภูมิภาค เพื่อให้เทียบความหนาแน่นได้ เช่น เยอรมนี/ยุโรป กับพื้นที่ที่แทบไม่มีเครื่องเลย">Per country and region, so coverage density is comparable between, say, Germany/Europe and places with almost none.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="แผงข้อมูลบริบท">Context panel</span>
+            <h4 data-th="มลพิษปัจจุบัน ค่าเฉลี่ย และผลกระทบต่อสุขภาพ">Current &amp; average air pollution + health impact</h4>
+            <p data-th="สำหรับพื้นที่ที่เลือก: ค่าที่อ่านได้แบบเรียลไทม์ ค่าเฉลี่ยระยะยาว จำนวนผู้เสียชีวิต และกราฟแนวโน้มรายปี (1990–2023) ที่ hover ดูตัวเลขแต่ละปีได้">For any selected area: live readings, long-run averages, the death toll attributable to air pollution, and an interactive yearly deaths-trend chart (1990–2023) you can hover for each year's value.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="ตัวกรอง">Filters</span>
+            <h4 data-th="กรองข้อมูลได้ละเอียด">Slice the data</h4>
+            <p data-th='กรองตามประเภทเครื่อง ผู้ผลิต และสถานะ online/offline'>By monitor type, manufacturer, and online/offline status.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="ส่งออก">Export</span>
+            <h4 data-th="ดาวน์โหลดสิ่งที่เห็นได้">Download what you see</h4>
+            <p data-th="มุมมองที่กรองแล้วใดก็ตาม → CSV หรือ Excel: รายการเครื่อง จำนวน ตัวเลขต่อหัวประชากร และตัวชี้วัดสุขภาพ">Any filtered view → CSV or Excel: monitor list, counts, per-capita figures, and health metrics.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="การเล่าเรื่อง">Narrative</span>
+            <h4 data-th='Story mode "ความเหลื่อมล้ำ"'>"Inequality" story mode</h4>
+            <p data-th="ลำดับภาพแบบสคริปต์: แสดงมลพิษที่หนักที่สุด → เฟดเป็นจอดำ → เผยให้เห็นความหนาแน่นเครื่องตรวจวัดที่เบาบาง ออกแบบมาสำหรับวิดีโอ hero บนเว็บไซต์">A scripted sequence: show worst pollution → fade to black → reveal sparse monitor density. Built for a website hero video.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="ระดับช่องว่าง">Gap levels</span>
+            <h4 data-th="จัดระดับช่องว่างการตรวจวัด 5 ระดับ">5-level monitoring gap</h4>
+            <p data-th='แต่ละประเทศได้ระดับน้ำเงิน→แดงตาม <code class="ic">gap = deaths/100k ÷ monitors/100k</code> จัดลำดับแบบ quintile เทียบประเทศที่มีเครื่องตรวจ'>Each country gets a blue→red level from <code class="ic">gap = deaths/100k ÷ monitors/100k</code>, ranked as quintiles among countries that have monitors.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="การลงทุน &amp; บริจาค">Investment</span>
+            <h4 data-th="ต้องการกี่เครื่อง ราคาเท่าไหร่">Monitors needed &amp; cost</h4>
+            <p data-th="สำหรับแต่ละประเทศ: ต้องเพิ่มเครื่องอีกกี่ตัวเพื่อเข้าโซนที่ดี พร้อมค่าใช้จ่ายแบบ low-cost vs reference และแถบเงินบริจาคที่ยังขาด">Per country: how many more monitors to reach the good zone, with low-cost vs reference cost and a donation-needed bar.</p>
+          </div>
+        </div>
+
+        <div class="note">
+          <span class="tag" data-th="ตัวอย่างจริง — เบอร์ลิน (จากโจทย์)">Worked example — Berlin (from the brief)</span>
+          <span data-th="คลิกเบอร์ลิน แล้วแผงข้อมูลจะตอบสี่คำถาม: <b>(1)</b> แสดงเครื่องตรวจวัดสาธารณะทุกตัว <b>(2)</b> จำนวนเครื่องในเยอรมนีและต่อหัวประชากรเทียบกับยุโรป <b>(3)</b> มลพิษปัจจุบันและค่าเฉลี่ยในเบอร์ลินจากค่าที่อ่านได้จริง <b>(4)</b> ผลกระทบต่อสุขภาพของเยอรมนี เช่น จำนวนผู้เสียชีวิตจากมลพิษทางอากาศ">Click Berlin and the panel answers four questions: <b>(1)</b> every public monitor shown, <b>(2)</b> monitor count in Germany and per capita vs. Europe, <b>(3)</b> current &amp; average pollution in Berlin from real readings, <b>(4)</b> the health impact for Germany — e.g. deaths attributable to air pollution.</span>
+        </div>
+      </section>
+
+      <!-- ---------- 03 TECH STACK ---------- -->
+      <section id="stack">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>03</b> · เทคโนโลยีที่ใช้"><b>03</b> · Technology Stack</div>
+          <h2 data-th="Stack ที่เลือกใช้">The stack</h2>
+          <p data-th="เลือกมาเพื่อให้ทำ demo ได้เร็วในงาน hackathon แต่ก็เป็นรากฐานจริงที่ต่อยอดได้ ใช้ TypeScript ตลอดทั้ง frontend และ backend ใช้ภาษาเดียวและแชร์โมเดลข้อมูลร่วมกันได้">Chosen for speed-to-demo at the hackathon while being a real foundation you can grow. TypeScript end-to-end so one language spans frontend, backend, and shared data models.</p>
+        </div>
+
+        <div class="grid g2">
+          <div class="card stack-card">
+            <div class="accent" style="background:var(--aqi-good)"></div>
+            <span class="layer">Frontend</span>
+            <div class="tech">Nuxt 3 (Vue 3)</div>
+            <div class="ver">+ Leaflet · Pinia · Tailwind · TypeScript</div>
+            <p class="why" data-th='ใช้ server-side rendering เพื่อให้หน้าแรกโหลดไวและ SEO ดีบนเว็บมูลนิธิ <strong>Leaflet</strong> สำหรับแผนที่ — เบา ฟรี ใช้ OpenStreetMap มีปลั๊กอิน cluster และ choropleth ที่โตเต็มที่ Pinia เก็บสถานะตัวกรอง ส่วน ECharts/Chart.js วาดกราฟสุขภาพ'>Server-side rendering for fast first paint and good SEO on the foundation site. <strong>Leaflet</strong> for the map — light, free, OpenStreetMap tiles, mature clustering &amp; choropleth plugins. Pinia holds filter state; ECharts/Chart.js renders the health charts.</p>
+          </div>
+          <div class="card stack-card">
+            <div class="accent" style="background:var(--teal)"></div>
+            <span class="layer">Backend / API</span>
+            <div class="tech">NestJS</div>
+            <div class="ver">Node + TypeScript · REST (OpenAPI)</div>
+            <p class="why" data-th="เฟรมเวิร์กที่มีโครงสร้างชัดเจน — controllers, services, DI, validation และ Swagger มาให้ในตัว รองรับทั้ง public API, ตัวจัดตารางเวลา ingestion และ export service แยกเป็นโมดูลชัดเจน">Structured, modular framework — controllers, services, DI, validation, Swagger out of the box. Hosts the public API, the ingestion scheduler, and the export service as clean separate modules.</p>
+          </div>
+          <div class="card stack-card">
+            <div class="accent" style="background:var(--teal-deep)"></div>
+            <span class="layer">Database</span>
+            <div class="tech">PostgreSQL + PostGIS</div>
+            <div class="ver">+ TimescaleDB (measurements)</div>
+            <p class="why" data-th='<strong>PostGIS</strong> ให้ query เชิงพื้นที่ได้จริง — "เครื่องตรวจในกรอบนี้", point-in-country, นับต่อพื้นที่ ส่วน TimescaleDB เปลี่ยนตาราง readings ให้เป็น time-series ที่มีประสิทธิภาพเมื่อข้อมูลโต'>PostGIS gives real geospatial queries — "monitors in this bounding box", point-in-country, per-area counts. TimescaleDB turns the readings table into an efficient time-series store as data grows.</p>
+          </div>
+          <div class="card stack-card">
+            <div class="accent" style="background:var(--aqi-sens)"></div>
+            <span class="layer">Cache / Jobs</span>
+            <div class="tech">Redis + BullMQ</div>
+            <div class="ver">caching · rate-limit · job queue</div>
+            <p class="why" data-th="แคช endpoint ที่ถูกเรียกบ่อย (มุมมองระดับโลก การจัดอันดับความหนาแน่น) รองรับ rate limiter และรันงาน ingestion ตามตารางเวลาที่ดึงข้อมูลจากภายนอก">Caches hot endpoints (the global view, density rankings), backs the rate limiter, and runs the scheduled ingestion jobs that poll the external data sources.</p>
+          </div>
+          <div class="card stack-card">
+            <div class="accent" style="background:var(--ink-soft)"></div>
+            <span class="layer">Edge / Infra</span>
+            <div class="tech">Nginx + Docker</div>
+            <div class="ver">reverse proxy · TLS · static + tiles</div>
+            <p class="why" data-th='Nginx จัดการ TLS, เสิร์ฟไฟล์ Nuxt ที่ build แล้วกับ static assets และ reverse-proxy <code class="ic">/api</code> ไปยัง NestJS ทุกอย่างรันเป็น Docker container ผ่าน Docker Compose — รันทั้งระบบด้วยคำสั่งเดียว'>Nginx terminates TLS, serves the built Nuxt app and static assets, and reverse-proxies <code class="ic">/api</code> to NestJS. Everything ships as Docker containers via Docker Compose — one command to run the whole system.</p>
+          </div>
+          <div class="card stack-card">
+            <div class="accent" style="background:var(--aqi-mod)"></div>
+            <span class="layer">Tooling</span>
+            <div class="tech">Prisma · Zod · pnpm</div>
+            <div class="ver">ORM · shared schemas · monorepo</div>
+            <p class="why" data-th='Prisma (หรือ TypeORM) สำหรับเข้าถึง DB แบบ typed และทำ migration; Zod schema ใช้ร่วมกันระหว่าง API และ frontend ใน workspace <code class="ic">/packages/shared</code> เพื่อให้ type ไม่หลุดกัน'>Prisma (or TypeORM) for typed DB access &amp; migrations; Zod schemas shared between API and frontend in a <code class="ic">/packages/shared</code> workspace so types never drift.</p>
+          </div>
+        </div>
+
+        <div class="note">
+          <span class="tag" data-th="ทำไมเลือกเหล่านี้ ไม่ใช่ตัวอื่นที่ฮิตกว่า">Why these and not the trendy alternatives</span>
+          <span data-th="Leaflet แทน Mapbox: <b>ฟรีและไม่จำกัด token</b> สำหรับเว็บสาธารณะของมูลนิธิ · Postgres+PostGIS แทน NoSQL: โจทย์หลักเป็นงาน <b>geospatial และ relational</b> (นับต่อพื้นที่ join กับข้อมูลสุขภาพ) · NestJS แทน Express เปล่า: มีโครงสร้างที่อยู่รอดหลังจบ hackathon เมื่อมีคนมาร่วมมากขึ้น">Leaflet over Mapbox: <b>free &amp; no token limits</b> for a public foundation site. Postgres+PostGIS over a NoSQL store: the core questions are <b>geospatial &amp; relational</b> (counts per area, joins to health data). NestJS over a bare Express app: structure that survives past the hackathon when more people touch the code.</span>
+        </div>
+      </section>
+
+      <!-- ---------- 04 ARCHITECTURE ---------- -->
+      <section id="architecture">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>04</b> · สถาปัตยกรรมระบบ"><b>04</b> · System Architecture</div>
+          <h2 data-th="แต่ละส่วนทำงานร่วมกันอย่างไร">How the pieces fit together</h2>
+          <p data-th="มีสี่ชั้น: แหล่งข้อมูลภายนอกป้อนชั้น ingestion → เขียนลงฐานข้อมูล → API แบบ stateless อ่านออกไป → เบราว์เซอร์แสดงผล โดยมี cache คั่นหน้าส่วนที่หนัก">Four tiers: external data sources feed an ingestion layer, which fills a database, which a stateless API reads from, which the browser app renders. Caching sits in front of the expensive parts.</p>
+        </div>
+
+        <div class="diagram">
+          <!-- Tier 1: external sources -->
+          <div class="tier">
+            <div class="tier-label" data-th="แหล่งข้อมูลภายนอก">External data sources</div>
+            <div class="row g3">
+              <div class="dnode accent-teal">
+                <div class="top">REST API</div>
+                <div class="t">AirGradient Map API</div>
+                <div class="d">monitors · readings · urban centers · population density</div>
+              </div>
+              <div class="dnode accent-teal">
+                <div class="top">Dataset / download</div>
+                <div class="t">State of Global Air</div>
+                <div class="d">deaths &amp; DALYs attributable to air pollution, by country/region</div>
+              </div>
+              <div class="dnode accent-teal">
+                <div class="top">Reference data</div>
+                <div class="t">Population &amp; boundaries</div>
+                <div class="d">country / region geometries · per-capita denominators</div>
+              </div>
+            </div>
+          </div>
+          <div class="flow-arrow">▼ &nbsp; scheduled pull &nbsp; ▼</div>
+
+          <!-- Tier 2: ingestion -->
+          <div class="tier">
+            <div class="tier-label" data-th="การนำเข้าและประมวลผล — NestJS workers (BullMQ)">Ingestion &amp; processing — NestJS workers (BullMQ)</div>
+            <div class="row g3">
+              <div class="dnode"><div class="top">Job</div><div class="t">Monitor sync</div><div class="d">upsert stations &amp; status</div></div>
+              <div class="dnode"><div class="top">Job</div><div class="t">Readings poll</div><div class="d">append latest measurements</div></div>
+              <div class="dnode"><div class="top">Job</div><div class="t">Aggregate density</div><div class="d">refresh per-capita stats</div></div>
+            </div>
+          </div>
+          <div class="flow-arrow">▼</div>
+
+          <!-- Tier 3: data + cache -->
+          <div class="tier">
+            <div class="tier-label" data-th="การจัดเก็บข้อมูล">Storage</div>
+            <div class="row g2">
+              <div class="dnode fill-teal">
+                <div class="top">System of record</div>
+                <div class="t">PostgreSQL + PostGIS + TimescaleDB</div>
+                <div class="d">monitors · measurements · health_impacts · geographies · density_stats</div>
+              </div>
+              <div class="dnode">
+                <div class="top">Cache &amp; queue</div>
+                <div class="t">Redis</div>
+                <div class="d">cached responses · rate limits · job queue</div>
+              </div>
+            </div>
+          </div>
+          <div class="flow-arrow">▲ reads &nbsp;·&nbsp; ▼ serves</div>
+
+          <!-- Tier 4: API + edge -->
+          <div class="tier">
+            <div class="tier-label" data-th="แอปพลิเคชันและ edge">Application &amp; edge</div>
+            <div class="row g3">
+              <div class="dnode"><div class="top">Service</div><div class="t">NestJS REST API</div><div class="d">/api/v1 · OpenAPI</div></div>
+              <div class="dnode"><div class="top">Service</div><div class="t">Export service</div><div class="d">CSV / XLSX streaming</div></div>
+              <div class="dnode accent-teal"><div class="top">Reverse proxy</div><div class="t">Nginx</div><div class="d">TLS · static · /api proxy</div></div>
+            </div>
+          </div>
+          <div class="flow-arrow">▼</div>
+
+          <!-- Tier 5: client -->
+          <div class="tier" style="margin-bottom:0">
+            <div class="tier-label" data-th="ฝั่งไคลเอนต์ — เบราว์เซอร์">Client — browser</div>
+            <div class="row g3">
+              <div class="dnode fill-teal"><div class="top">SSR app</div><div class="t">Nuxt 3 + Leaflet</div><div class="d">map · filters · panels</div></div>
+              <div class="dnode"><div class="top">Embeddable</div><div class="t">Story-mode widget</div><div class="d">foundation website</div></div>
+              <div class="dnode"><div class="top">Output</div><div class="t">Data download</div><div class="d">CSV · Excel</div></div>
+            </div>
+          </div>
+
+          <div class="legend">
+            <span data-th="<i style=&quot;background:var(--teal)&quot;></i>เส้นทางหลัก (จัดเก็บและให้บริการ)"><i style="background:var(--teal)"></i>Core path (record &amp; serve)</span>
+            <span data-th="<i style=&quot;background:rgba(14,122,102,.4)&quot;></i>ขอบภายนอก / edge"><i style="background:rgba(14,122,102,.4)"></i>External / edge boundary</span>
+            <span data-th="<i style=&quot;background:var(--card);border:1px solid var(--line)&quot;></i>เซอร์วิส/งานภายใน"><i style="background:var(--card);border:1px solid var(--line)"></i>Internal service / job</span>
+          </div>
+        </div>
+
+        <div class="note">
+          <span class="tag" data-th="แนวคิดหลัก — คำนวณล่วงหน้า อย่าคำนวณตอนคลิก">Key idea — precompute, don't compute on click</span>
+          <span data-th='เบราว์เซอร์จะไม่สั่งให้ฐานข้อมูลนับเครื่องหลายพันตัวแบบสดๆ worker job จะ <b>คำนวณล่วงหน้า</b> ความหนาแน่นลงตาราง <code class="ic">density_stats</code> ตามรอบเวลา แผนที่และแผงจึงอ่านคำตอบที่ cache ไว้ได้ทันที นี่คือสิ่งที่ทำให้ขยายได้ระดับโลกโดยไม่ช้าลง'>The browser never asks the database to count thousands of monitors live. Worker jobs <b>pre-aggregate</b> density into a <code class="ic">density_stats</code> table on a schedule, so the map and panels read instant, cached answers. This is what lets it scale globally without slowing down.</span>
+        </div>
+      </section>
+
+      <!-- ---------- 05 DATA FLOW ---------- -->
+      <section id="dataflow">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>05</b> · การไหลของข้อมูลและ Pipeline"><b>05</b> · Data Flow &amp; Pipeline</div>
+          <h2 data-th="ข้อมูลไหลผ่านระบบอย่างไร">How data moves through the system</h2>
+          <p data-th="มีสองจังหวะ: ค่า <strong>readings</strong> ของเครื่องตรวจเปลี่ยนตลอดจึง poll บ่อย; ส่วนรายชื่อสถานี (<strong>roster</strong>) และชุดข้อมูลสุขภาพเปลี่ยนนานๆ จึง sync ช้ากว่า แต่ละแหล่งมี job และตารางเวลาของตัวเอง">Two different rhythms: monitor <strong>readings</strong> change constantly and are polled often; the <strong>roster</strong> of stations and the <strong>health datasets</strong> change rarely and are synced slowly. Each external source has its own job with its own schedule.</p>
+        </div>
+
+        <div class="pipe">
+          <div class="pstep">
+            <div class="num"><b></b></div>
+            <div class="body">
+              <h4 data-th="ดึง readings สดและรายชื่อเครื่องตรวจจาก AirGradient">Pull live readings &amp; monitor roster from AirGradient</h4>
+              <p data-th='worker ตามตารางเวลาเรียก AirGradient Map API สถานีใหม่จะถูก <em>upsert</em> ลง <code class="ic">monitors</code>; ค่าล่าสุดกลายเป็นแถวใน <code class="ic">measurements</code> แต่ละเครื่องถูกติดแท็กประเภท ผู้ผลิต เจ้าของ และธง OAF ถ้ามี'>A scheduled worker calls the AirGradient Map API. New stations are <em>upserted</em> into <code class="ic">monitors</code>; the latest values become rows in <code class="ic">measurements</code>. Each monitor is tagged with type, manufacturer, owner, and the OAF-donated flag if present.</p>
+              <span class="freq" data-th="readings ~ ทุก 10 นาที · roster ~ รายวัน">readings ~ every 10 min · roster ~ daily</span>
+            </div>
+          </div>
+          <div class="pstep">
+            <div class="num"><b></b></div>
+            <div class="body">
+              <h4 data-th="นำเข้าข้อมูลผลกระทบสุขภาพ (State of Global Air)">Import health-impact data (State of Global Air)</h4>
+              <p data-th='ตัวเลขการเสียชีวิตและ DALY จากฐาน GBD จะถูกโหลดเป็น batch ที่มีเวอร์ชันลง <code class="ic">health_impacts</code> แยกตามประเทศ ปี และมลพิษ เป็นข้อมูลอ้างอิงที่รีเฟรชเฉพาะเมื่อมีชุดใหม่รายปี'>The GBD-based death &amp; DALY figures are loaded as a versioned batch into <code class="ic">health_impacts</code>, keyed by country, year, and pollutant. This is reference data — refreshed only when a new annual release ships.</p>
+              <span class="freq" data-th="batch · เมื่อมีรีลีซใหม่">batch · on new release</span>
+            </div>
+          </div>
+          <div class="pstep">
+            <div class="num"><b></b></div>
+            <div class="body">
+              <h4 data-th="โหลดขอบเขตภูมิศาสตร์และประชากรครั้งเดียว">Load geographies &amp; population once</h4>
+              <p data-th="ขอบเขตประเทศและภูมิภาค (PostGIS geometries) พร้อมจำนวนประชากรถูก seed ไว้ เพื่อทำ point-in-area และคำนวณความหนาแน่น <strong>ต่อหัวประชากร</strong> โพลิกอนเขตเมืองจาก API ช่วยเสริมระดับเมือง">Country and region boundaries (PostGIS geometries) plus population figures are seeded so we can do point-in-area lookups and compute <strong>per-capita</strong> density. Urban-center polygons from the API enrich the city level.</p>
+              <span class="freq" data-th="seed · รีเฟรชรายปี">seed · annual refresh</span>
+            </div>
+          </div>
+          <div class="pstep">
+            <div class="num"><b></b></div>
+            <div class="body">
+              <h4 data-th="ระบุพิกัดภูมิศาสตร์และรวมยอด">Geo-tag &amp; aggregate</h4>
+              <p data-th='จุดของแต่ละเครื่องจะถูกจับคู่กับประเทศ/ภูมิภาค/เมืองผ่าน PostGIS จากนั้น job จะคำนวณจำนวนใหม่ — รวม online reference เทียบ low-cost และต่อประชากร 100k — แล้วเขียนลง <code class="ic">density_stats</code> (และ materialized views)'>Each monitor's point is matched to its country / region / urban center via PostGIS. A job then recomputes counts — total, online, reference vs. low-cost, and per 100k people — and writes them to <code class="ic">density_stats</code> (and matching materialized views).</p>
+              <span class="freq" data-th="หลังจาก sync แต่ละครั้ง">after each sync</span>
+            </div>
+          </div>
+          <div class="pstep">
+            <div class="num"><b></b></div>
+            <div class="body">
+              <h4 data-th="ให้บริการผ่าน API และ cache ด้วย Redis">Serve via API, cached in Redis</h4>
+              <p data-th="ฝั่ง frontend ขอเฉพาะคำตอบที่ประมวลผลแล้ว: GeoJSON สำหรับ viewport ของแผนที่ object ความหนาแน่นของประเทศ หรือ series สุขภาพสำหรับกราฟ คำตอบยอดฮิตถูก cache ใน Redis ด้วย TTL สั้นๆ และล้างเมื่อ sync เสร็จ">The frontend requests only finished answers: GeoJSON for the map viewport, a density object for a country, a health series for a chart. Hot responses are cached in Redis with short TTLs and busted when a sync completes.</p>
+              <span class="freq" data-th="เรียลไทม์ · TTL 1–10 นาที">real-time · TTL 1–10 min</span>
+            </div>
+          </div>
+          <div class="pstep">
+            <div class="num"><b></b></div>
+            <div class="body">
+              <h4 data-th="แสดงผลและส่งออกบนเบราว์เซอร์">Render &amp; export in the browser</h4>
+              <p data-th="Nuxt + Leaflet วาดเครื่องตรวจแบบ cluster พร้อมชั้น choropleth สุขภาพ แผงด้านข้างแสดงพื้นที่ที่เลือก query ที่กรองอยู่สามารถ stream เป็น CSV / XLSX ได้ทันทีผ่าน export service">Nuxt + Leaflet draws clustered monitors and a choropleth health overlay; the side panel shows the selected area. The same filtered query can be streamed straight to CSV / XLSX by the export service.</p>
+              <span class="freq" data-th="ตามคำขอ">on demand</span>
+            </div>
+          </div>
+        </div>
+
+        <h3 data-th="กฎความน่าเชื่อถือที่ฝังไว้ใน pipeline">Reliability rules baked into the pipeline</h3>
+        <ul>
+          <li data-th='<strong>Upsert แบบ idempotent</strong> — รัน sync ซ้ำไม่ทำให้เครื่องซ้ำ (อิง <code class="ic">source + external_id</code>)'><strong>Idempotent upserts</strong> — re-running a sync never duplicates monitors (keyed on <code class="ic">source + external_id</code>).</li>
+          <li data-th='<strong>ทุกรอบถูกบันทึก</strong> ในตาราง audit <code class="ic">ingestion_runs</code>: แหล่ง เวลาเริ่ม/จบ จำนวนแถว สถานะ — จึงเห็นได้ทันทีถ้า feed ค้าง'><strong>Every run is logged</strong> in an <code class="ic">ingestion_runs</code> audit table: source, started/finished, rows touched, status — so a stalled feed is visible.</li>
+          <li data-th='<strong>รับมือข้อมูลเก่าได้</strong> — ถ้าแหล่งภายนอกล่ม ข้อมูลล่าสุดที่ดียังถูกแสดงต่อ และเครื่องมี <code class="ic">last_seen</code> ให้ UI มาร์คออฟไลน์ได้'><strong>Graceful staleness</strong> — if an external source is down, the last good data stays served; monitors carry a <code class="ic">last_seen</code> so the UI can mark them offline.</li>
+          <li data-th='<strong>รองรับ backfill</strong> — job รับช่วงวันได้ จึง import readings ย้อนหลังได้โดยไม่กระทบ logic หลัก'><strong>Backfill-friendly</strong> — jobs accept a date range so historical readings can be re-imported without touching live logic.</li>
+        </ul>
+
+        <h3 data-th="ลำดับการทำงาน (Sequence diagrams)">Sequence diagrams</h3>
+        <p data-th="สามเส้นทางหลักที่ Claude Code ต้องอิมพลีเมนต์ — แสดง “ใครคุยกับใคร ตามลำดับเวลา” เสริมจากผังภาพรวมด้านบน">The three core paths to implement — showing <strong>who talks to whom, in time order</strong>, to complement the architecture diagram above.</p>
+
+        <!-- SEQ 1: ingestion -->
+        <div class="seq">
+          <div class="seq-title" data-th="A · งานดึงข้อมูลตามเวลา (Ingestion)">A · Scheduled ingestion job</div>
+          <div class="seq-sub" data-th="ทุก ~10 นาที (readings) / รายวัน (roster)">Runs every ~10 min (readings) / daily (roster)</div>
+          <div class="seq-actors">
+            <span class="actor" style="background:var(--aqi-mod)">Scheduler</span>
+            <span class="actor" style="background:var(--teal)">Worker (BullMQ)</span>
+            <span class="actor" style="background:var(--faint)">AirGradient API</span>
+            <span class="actor" style="background:var(--teal-deep)">PostgreSQL</span>
+            <span class="actor" style="background:var(--aqi-sens)">Redis</span>
+          </div>
+          <div class="seq-steps">
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Scheduler</span><span class="arrow">→</span><span class="tag">Worker</span></div><div class="desc" data-th="ทริกเกอร์งาน sync ตาม cron">Trigger sync job on cron schedule</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Worker</span><span class="arrow">→</span><span class="tag">AirGradient API</span></div><div class="desc" data-th="ขอรายชื่อเครื่องตรวจ + ค่าล่าสุด">GET monitors &amp; latest readings</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">AirGradient API</span><span class="arrow back">⇠</span><span class="tag">Worker</span></div><div class="desc" data-th="ตอบกลับเป็น JSON">Returns monitor &amp; reading JSON</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Worker</span><span class="arrow">→</span><span class="tag">PostgreSQL</span></div><div class="desc" data-th="upsert ลงตาราง monitors แบบ idempotent + เพิ่มแถวใน measurements">Idempotent upsert into <code>monitors</code>, append <code>measurements</code></div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Worker</span><span class="arrow">→</span><span class="tag">PostgreSQL</span></div><div class="desc" data-th="geo-tag แต่ละเครื่องด้วย PostGIS แล้วคำนวณ density_stats ใหม่">Geo-tag via PostGIS, recompute <code>density_stats</code></div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Worker</span><span class="arrow">→</span><span class="tag">Redis</span></div><div class="desc" data-th="ล้าง cache ของ view ที่เกี่ยวข้อง">Invalidate affected cached responses</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Worker</span><span class="arrow">→</span><span class="tag">PostgreSQL</span></div><div class="desc" data-th="บันทึกผลรอบนี้ลง ingestion_runs (ok/partial/failed)">Log run to <code>ingestion_runs</code> (ok / partial / failed)</div></div></div>
+          </div>
+        </div>
+
+        <!-- SEQ 2: map load + click -->
+        <div class="seq">
+          <div class="seq-title" data-th="B · โหลดแผนที่ แล้วคลิกประเทศ (เคส Berlin)">B · Map load, then country click (the Berlin case)</div>
+          <div class="seq-sub" data-th="คำขอแบบเรียลไทม์จากเบราว์เซอร์">Real-time requests from the browser</div>
+          <div class="seq-actors">
+            <span class="actor" style="background:var(--ink-soft)">Browser</span>
+            <span class="actor" style="background:var(--muted)">Nginx</span>
+            <span class="actor" style="background:var(--teal)">NestJS API</span>
+            <span class="actor" style="background:var(--aqi-sens)">Redis</span>
+            <span class="actor" style="background:var(--teal-deep)">PostgreSQL</span>
+          </div>
+          <div class="seq-steps">
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Browser</span><span class="arrow">→</span><span class="tag">Nginx</span><span class="arrow">→</span><span class="tag">NestJS API</span></div><div class="desc" data-th="ขอเครื่องตรวจใน viewport"><code>GET /api/v1/monitors?bbox=…</code></div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">NestJS API</span><span class="arrow">→</span><span class="tag">Redis</span></div><div class="desc" data-th="เช็ค cache ก่อน — ถ้า miss ค่อยไปต่อ">Check cache — on miss, continue</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">NestJS API</span><span class="arrow">→</span><span class="tag">PostgreSQL</span></div><div class="desc" data-th="query PostGIS หาเครื่องในกรอบพิกัด (server-cluster)">PostGIS query: monitors in bbox (server-clustered)</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">NestJS API</span><span class="arrow">→</span><span class="tag">Redis</span></div><div class="desc" data-th="เก็บผลลง cache พร้อม TTL">Store response in cache with TTL</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">NestJS API</span><span class="arrow back">⇠</span><span class="tag">Browser</span></div><div class="desc" data-th="ส่ง GeoJSON FeatureCollection กลับไปวาดบนแผนที่">Returns GeoJSON FeatureCollection → drawn on map</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Browser</span><span class="arrow">→</span><span class="tag">NestJS API</span></div><div class="desc" data-th="ผู้ใช้คลิกประเทศ"><code>GET /density?iso3=DE</code> + <code>/health-impacts?iso3=DE</code></div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">NestJS API</span><span class="arrow">→</span><span class="tag">PostgreSQL</span></div><div class="desc" data-th="อ่าน density_stats + health_impacts ที่คำนวณไว้แล้ว (แถวเดียว)">Read precomputed <code>density_stats</code> + <code>health_impacts</code></div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">NestJS API</span><span class="arrow back">⇠</span><span class="tag">Browser</span></div><div class="desc" data-th="ส่งความหนาแน่น + ภาระสุขภาพ → แสดงในแผงข้าง">Returns density + health → side panel</div></div></div>
+          </div>
+        </div>
+
+        <!-- SEQ 3: export -->
+        <div class="seq">
+          <div class="seq-title" data-th="C · ส่งออกข้อมูลเป็น CSV">C · Export data to CSV</div>
+          <div class="seq-sub" data-th="สตรีมทีละแถว รองรับไฟล์ใหญ่">Streamed row-by-row to handle large files</div>
+          <div class="seq-actors">
+            <span class="actor" style="background:var(--ink-soft)">Browser</span>
+            <span class="actor" style="background:var(--aqi-mod)">Export service</span>
+            <span class="actor" style="background:var(--teal-deep)">PostgreSQL</span>
+          </div>
+          <div class="seq-steps">
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Browser</span><span class="arrow">→</span><span class="tag">Export service</span></div><div class="desc" data-th="ขอไฟล์ตามตัวกรองปัจจุบัน"><code>GET /export?dataset=gap&amp;…filters</code></div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Export service</span><span class="arrow">→</span><span class="tag">PostgreSQL</span></div><div class="desc" data-th="เปิด cursor query แบบสตรีม (ไม่โหลดทั้งหมดเข้าหน่วยความจำ)">Open a streaming cursor query (no full load into memory)</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">PostgreSQL</span><span class="arrow back">⇠</span><span class="tag">Export service</span></div><div class="desc" data-th="ส่งแถวทยอยมาเรื่อยๆ">Rows streamed back in batches</div></div></div>
+            <div class="seq-step"><div class="sn"></div><div class="seq-msg"><div class="seq-route"><span class="tag">Export service</span><span class="arrow back">⇠</span><span class="tag">Browser</span></div><div class="desc" data-th="สตรีม CSV (UTF-8 + BOM) หรือ XLSX กลับเป็นไฟล์ดาวน์โหลด">Streams CSV (UTF-8 + BOM) or XLSX as a download</div></div></div>
+          </div>
+        </div>
+
+        <h3 data-th="แหล่งข้อมูลและการอ้างอิง">Data sources &amp; references</h3>
+        <p data-th="ตัวเลขทุกค่าในระบบดึงจากแหล่งสาธารณะที่อ้างอิงได้ — ด้านล่างคือที่มาของข้อมูลประชากร (สำหรับคำนวณต่อหัว) และข้อมูลผู้เสียชีวิต พร้อมลิงก์">Every figure in the system comes from a citable public source. Below are the origins of the <strong>population</strong> data (for per-capita math) and the <strong>deaths</strong> data, with links.</p>
+        <div class="grid g2">
+          <div class="card">
+            <span class="ico" data-th="ผู้เสียชีวิต">Deaths</span>
+            <h4 data-th="ผู้เสียชีวิตจาก PM2.5">Deaths attributable to PM2.5</h4>
+            <p data-th="จาก State of Global Air (Health Effects Institute) ซึ่งอ้างอิงผลการศึกษา Global Burden of Disease (GBD) ของ IHME — ตัวเลขผู้เสียชีวิตและ DALYs ต่อประเทศ/ภูมิภาค">From <strong>State of Global Air</strong> (Health Effects Institute), built on the <strong>Global Burden of Disease (GBD)</strong> study by IHME — deaths &amp; DALYs per country/region.</p>
+            <p style="margin-top:10px;font-size:13px">
+              <a class="inline" href="https://www.stateofglobalair.org/data" target="_blank" rel="noopener">stateofglobalair.org/data</a><br>
+              <a class="inline" href="https://www.healthdata.org/research-analysis/gbd" target="_blank" rel="noopener">healthdata.org · GBD (IHME)</a>
+            </p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="ประชากร">Population</span>
+            <h4 data-th="ประชากรประเทศและเมือง">Country &amp; urban population</h4>
+            <p data-th="ตัวหารต่อหัวมาจาก UN World Population Prospects และ World Bank Open Data ส่วนประชากร/ความหนาแน่นระดับเมืองใช้ GHSL Urban Centre Database (EU JRC) และ urban centers จาก AirGradient API">Per-capita denominators from <strong>UN World Population Prospects</strong> &amp; <strong>World Bank Open Data</strong>; city-level population/density from <strong>GHSL Urban Centre Database</strong> (EU JRC) and the AirGradient API.</p>
+            <p style="margin-top:10px;font-size:13px">
+              <a class="inline" href="https://population.un.org/wpp/" target="_blank" rel="noopener">population.un.org/wpp</a><br>
+              <a class="inline" href="https://data.worldbank.org/indicator/SP.POP.TOTL" target="_blank" rel="noopener">data.worldbank.org · SP.POP.TOTL</a><br>
+              <a class="inline" href="https://ghsl.jrc.ec.europa.eu/" target="_blank" rel="noopener">ghsl.jrc.ec.europa.eu</a>
+            </p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="เครื่องตรวจวัด">Monitors</span>
+            <h4 data-th="เครื่องตรวจวัด &amp; ค่าตรวจวัด">Monitors &amp; readings</h4>
+            <p data-th="รายชื่อเครื่องตรวจสาธารณะทุกผู้ผลิต พร้อมค่าล่าสุด urban centers และความหนาแน่นประชากร — จาก AirGradient Map API">All public monitors (every manufacturer) with latest readings, urban centers &amp; population density — from the <strong>AirGradient Map API</strong>.</p>
+            <p style="margin-top:10px;font-size:13px">
+              <a class="inline" href="https://map-data-int.airgradient.com/map/api/v1/docs#/" target="_blank" rel="noopener">AirGradient Map API docs</a>
+            </p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="ขอบเขต">Boundaries</span>
+            <h4 data-th="ขอบเขตประเทศ/เมือง">Country &amp; city boundaries</h4>
+            <p data-th="รูปทรงประเทศจาก Natural Earth ส่วนขอบเขตเมืองจริงจาก OpenStreetMap (ผ่าน Nominatim) — ใช้ในเดโม่และพร้อม seed ลง PostGIS">Country shapes from <strong>Natural Earth</strong>; real city limits from <strong>OpenStreetMap</strong> (via Nominatim) — used in the demo, ready to seed into PostGIS.</p>
+            <p style="margin-top:10px;font-size:13px">
+              <a class="inline" href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">naturalearthdata.com</a><br>
+              <a class="inline" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">openstreetmap.org · © contributors</a>
+            </p>
+          </div>
+        </div>
+        <div class="note">
+          <span class="tag" data-th="หมายเหตุเรื่องลิขสิทธิ์">Licensing note</span>
+          <span data-th="ตรวจเงื่อนไขการใช้ของแต่ละแหล่งก่อนเผยแพร่: OpenStreetMap = ODbL (ต้องให้เครดิต), Natural Earth = สาธารณสมบัติ, World Bank/UN = เปิดให้ใช้, State of Global Air/GBD = อ้างอิงตามที่กำหนด">Check each source's terms before publishing: OpenStreetMap is ODbL (attribution required), Natural Earth is public domain, World Bank/UN are open, and State of Global Air / GBD require their stated citation.</span>
+        </div>
+      </section>
+
+      <!-- ---------- 06 DATABASE ---------- -->
+      <section id="database">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>06</b> · โครงสร้างฐานข้อมูล"><b>06</b> · Database Schema</div>
+          <h2 data-th="โมเดลข้อมูลและความสัมพันธ์">Data model &amp; relationships</h2>
+          <p data-th="PostgreSQL พร้อม PostGIS แบ่งตารางเป็นสามกลุ่ม: <strong>geography</strong> (ที่ไหน) <strong>monitoring</strong> (วัดอะไร) และ <strong>impact</strong> (กระทบต่อใคร) — เชื่อมด้วยชั้น <strong>aggregate</strong> ที่คำนวณล่วงหน้าไว้ ซึ่งเป็นสิ่งที่แอปอ่านจริง">PostgreSQL with PostGIS. Three families of tables: <strong>geography</strong> (where), <strong>monitoring</strong> (what we measure), and <strong>impact</strong> (who it hurts) — joined by a precomputed <strong>aggregates</strong> layer the app actually reads.</p>
+        </div>
+
+        <div class="er-grid">
+          <!-- countries -->
+          <div class="ertable geo">
+            <div class="th">countries <span class="badge">geography</span></div>
+            <div class="ercol"><span class="cn key">id</span><span class="ct">uuid · PK</span></div>
+            <div class="ercol"><span class="cn">iso3</span><span class="ct">char(3) · unique</span></div>
+            <div class="ercol"><span class="cn">name</span><span class="ct">text</span></div>
+            <div class="ercol"><span class="cn fk">region_id</span><span class="ct">→ regions</span></div>
+            <div class="ercol"><span class="cn">population</span><span class="ct">bigint</span></div>
+            <div class="ercol"><span class="cn">geom</span><span class="ct">geometry(MultiPolygon)</span></div>
+          </div>
+          <!-- regions -->
+          <div class="ertable geo">
+            <div class="th">regions <span class="badge">geography</span></div>
+            <div class="ercol"><span class="cn key">id</span><span class="ct">uuid · PK</span></div>
+            <div class="ercol"><span class="cn">name</span><span class="ct">text</span></div>
+            <div class="ercol"><span class="cn fk">parent_id</span><span class="ct">→ regions (self)</span></div>
+            <div class="ercol"><span class="cn">population</span><span class="ct">bigint</span></div>
+            <div class="ercol"><span class="cn">level</span><span class="ct">enum continent/subregion</span></div>
+          </div>
+          <!-- urban_centers -->
+          <div class="ertable geo">
+            <div class="th">urban_centers <span class="badge">geography</span></div>
+            <div class="ercol"><span class="cn key">id</span><span class="ct">uuid · PK</span></div>
+            <div class="ercol"><span class="cn">name</span><span class="ct">text</span></div>
+            <div class="ercol"><span class="cn fk">country_id</span><span class="ct">→ countries</span></div>
+            <div class="ercol"><span class="cn">population</span><span class="ct">bigint</span></div>
+            <div class="ercol"><span class="cn">pop_density</span><span class="ct">numeric</span></div>
+            <div class="ercol"><span class="cn">geom</span><span class="ct">geometry(Polygon)</span></div>
+          </div>
+          <!-- monitors -->
+          <div class="ertable">
+            <div class="th" style="background:var(--teal)">monitors <span class="badge">monitoring</span></div>
+            <div class="ercol"><span class="cn key">id</span><span class="ct">uuid · PK</span></div>
+            <div class="ercol"><span class="cn">source</span><span class="ct">enum airgradient/…</span></div>
+            <div class="ercol"><span class="cn">external_id</span><span class="ct">text · uniq(source,ext)</span></div>
+            <div class="ercol"><span class="cn">manufacturer</span><span class="ct">text</span></div>
+            <div class="ercol"><span class="cn">type</span><span class="ct">enum reference/low_cost</span></div>
+            <div class="ercol"><span class="cn">owner</span><span class="ct">text</span></div>
+            <div class="ercol"><span class="cn">is_oaf_donated</span><span class="ct">boolean</span></div>
+            <div class="ercol"><span class="cn fk">country_id</span><span class="ct">→ countries</span></div>
+            <div class="ercol"><span class="cn fk">urban_center_id</span><span class="ct">→ urban_centers</span></div>
+            <div class="ercol"><span class="cn">location</span><span class="ct">geography(Point)</span></div>
+            <div class="ercol"><span class="cn">status</span><span class="ct">enum online/offline</span></div>
+            <div class="ercol"><span class="cn">first_seen / last_seen</span><span class="ct">timestamptz</span></div>
+          </div>
+          <!-- measurements -->
+          <div class="ertable ts">
+            <div class="th">measurements <span class="badge">time-series</span></div>
+            <div class="ercol"><span class="cn fk">monitor_id</span><span class="ct">→ monitors</span></div>
+            <div class="ercol"><span class="cn key">ts</span><span class="ct">timestamptz · PK part</span></div>
+            <div class="ercol"><span class="cn">pm25 / pm10</span><span class="ct">numeric</span></div>
+            <div class="ercol"><span class="cn">aqi</span><span class="ct">smallint</span></div>
+            <div class="ercol"><span class="cn">co2 / temp / rh</span><span class="ct">numeric</span></div>
+            <div class="ercol"><span class="cn ct" style="color:var(--aqi-sens)">Timescale hypertable, partitioned by ts</span><span class="ct"></span></div>
+          </div>
+          <!-- health_impacts -->
+          <div class="ertable ref">
+            <div class="th">health_impacts <span class="badge">impact</span></div>
+            <div class="ercol"><span class="cn key">id</span><span class="ct">uuid · PK</span></div>
+            <div class="ercol"><span class="cn fk">country_id</span><span class="ct">→ countries</span></div>
+            <div class="ercol"><span class="cn">year</span><span class="ct">smallint</span></div>
+            <div class="ercol"><span class="cn">pollutant</span><span class="ct">enum pm25/ozone/…</span></div>
+            <div class="ercol"><span class="cn">metric</span><span class="ct">enum deaths/daly/yll</span></div>
+            <div class="ercol"><span class="cn">value</span><span class="ct">numeric</span></div>
+            <div class="ercol"><span class="cn">rate_per_100k</span><span class="ct">numeric</span></div>
+          </div>
+          <!-- density_stats -->
+          <div class="ertable agg">
+            <div class="th">density_stats <span class="badge">aggregate</span></div>
+            <div class="ercol"><span class="cn key">id</span><span class="ct">uuid · PK</span></div>
+            <div class="ercol"><span class="cn">scope_type</span><span class="ct">enum country/region/city</span></div>
+            <div class="ercol"><span class="cn fk">scope_id</span><span class="ct">→ geography</span></div>
+            <div class="ercol"><span class="cn">monitors_total</span><span class="ct">int</span></div>
+            <div class="ercol"><span class="cn">monitors_online</span><span class="ct">int</span></div>
+            <div class="ercol"><span class="cn">reference / low_cost</span><span class="ct">int</span></div>
+            <div class="ercol"><span class="cn">per_100k</span><span class="ct">numeric</span></div>
+            <div class="ercol"><span class="cn">computed_at</span><span class="ct">timestamptz</span></div>
+          </div>
+          <!-- ingestion_runs -->
+          <div class="ertable agg">
+            <div class="th">ingestion_runs <span class="badge">audit</span></div>
+            <div class="ercol"><span class="cn key">id</span><span class="ct">uuid · PK</span></div>
+            <div class="ercol"><span class="cn">source</span><span class="ct">text</span></div>
+            <div class="ercol"><span class="cn">started_at / finished_at</span><span class="ct">timestamptz</span></div>
+            <div class="ercol"><span class="cn">rows_upserted</span><span class="ct">int</span></div>
+            <div class="ercol"><span class="cn">status</span><span class="ct">enum ok/partial/failed</span></div>
+          </div>
+        </div>
+
+        <p class="rel-note" data-th='<b>ความสัมพันธ์ —</b> regions <b>1—∞</b> countries <b>1—∞</b> urban_centers · countries/urban_centers <b>1—∞</b> monitors · monitors <b>1—∞</b> measurements (time-series) · countries <b>1—∞</b> health_impacts · density_stats และ ingestion_runs เป็นตารางที่ได้จากการคำนวณ/audit ไม่ได้แก้ด้วยมือ'><b>Relationships —</b> regions <b>1—∞</b> countries <b>1—∞</b> urban_centers · countries/urban_centers <b>1—∞</b> monitors · monitors <b>1—∞</b> measurements (time-series) · countries <b>1—∞</b> health_impacts · density_stats &amp; ingestion_runs are derived/audit tables, not edited by hand.</p>
+
+        <div class="note">
+          <span class="tag" data-th="ทำไมต้องมีตาราง aggregate แยก">Why a separate aggregate table</span>
+          <span data-th='การนับเครื่องตรวจของทุกประเทศทั่วโลกทุกครั้งที่ขยับแผนจะช้าและทำให้ฐานข้อมูลทำงานหนัก <code class="ic">density_stats</code> เก็บคำตอบที่ <b>คำนวณไว้แล้ว</b> รีเฟรชโดย job เบื้องหลัง — API แค่อ่านแถวเดียวที่มี index นี่คือการตัดสินใจที่สำคัญที่สุดในการทำให้แผนเร็วในระดับโลก'>Counting monitors per country across the whole world on every map move would be slow and would hammer the database. <code class="ic">density_stats</code> stores those answers <b>already computed</b>, refreshed by a background job — the API just reads one indexed row. This is the single most important decision for keeping the map fast at global scale.</span>
+        </div>
+      </section>
+
+      <!-- ---------- 07 API ---------- -->
+      <section id="api">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>07</b> · การออกแบบ API"><b>07</b> · API Design</div>
+          <h2 data-th='Public REST API — <code class="ic">/api/v1</code>'>Public REST API — <code class="ic">/api/v1</code></h2>
+          <p data-th="เน้นการอ่านและ stateless ทุก endpoint คืน JSON (เป็น GeoJSON เมื่อเกี่ยวกับแผนที่) cache ได้ และแมปกับฟีเจอร์บนหน้าจอ สร้างเอกสารอัตโนมัติด้วย Swagger/OpenAPI จาก decorator ของ NestJS">Read-heavy and stateless. Every endpoint returns JSON (GeoJSON where geographic), is cacheable, and maps to a screen feature. Auto-documented with Swagger/OpenAPI from NestJS decorators.</p>
+        </div>
+
+        <div class="api">
+          <div class="api-group" data-th="เครื่องตรวจและแผนที่">Monitors &amp; map</div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/monitors<span class="q">?bbox=&amp;type=&amp;manufacturer=&amp;oaf=&amp;status=</span></div><p data-th="เครื่องตรวจใน viewport เป็น GeoJSON FeatureCollection รวมกลุ่มฝั่งเซิร์ฟเวอร์เมื่อซูมออก คือคอลหลักของแผนที่">Monitors in a viewport as a GeoJSON FeatureCollection, server-clustered at low zoom. The map's primary call.</p></div></div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/monitors/:id</div><p data-th="รายละเอียดเต็มของเครื่องตัวเดียว: metadata เจ้าของ ธง OAF และค่าล่าสุด">Full detail for one monitor: metadata, owner, OAF flag, latest reading.</p></div></div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/monitors/:id/measurements<span class="q">?from=&amp;to=&amp;interval=</span></div><p data-th="ข้อมูล time-series สำหรับกราฟประวัติ (ดิบหรือเฉลี่ยเป็นช่วง)">Time-series readings for the history chart (raw or bucketed averages).</p></div></div>
+
+          <div class="api-group" data-th="ความหนาแน่น (ตัวเลขความเหลื่อมล้ำ)">Density (the inequality numbers)</div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/density<span class="q">?scope=country&amp;iso3=DE</span></div><p data-th="จำนวนและความหนาแน่นต่อหัวประชากรของพื้นที่หนึ่ง — ขับแผงข้าง (คำตอบ Berlin / Germany)">Counts &amp; per-capita density for one area — drives the side panel (the "Berlin / Germany" answer).</p></div></div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/density/ranking<span class="q">?metric=per_100k&amp;order=asc&amp;limit=</span></div><p data-th="พื้นที่ที่ถูกตรวจน้อยที่สุด — ขับ story mode และมุมมอง ที่ไหนต้องการมากที่สุด">Most under-monitored areas — powers story mode and the "where it's needed most" view.</p></div></div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/density/choropleth<span class="q">?metric=&amp;scope=</span></div><p data-th="ค่าเดียวต่อหนึ่งพื้นที่ สำหรับระบายสี overlay บนแผนที่">One value per geography for shading the map overlay.</p></div></div>
+
+          <div class="api-group" data-th="ผลกระทบต่อสุขภาพ">Health impact</div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/health-impacts<span class="q">?iso3=DE&amp;pollutant=pm25&amp;metric=deaths</span></div><p data-th="ตัวเลขจาก State of Global Air ของพื้นที่ — จำนวนผู้เสียชีวิตและอัตรา สำหรับแผงข้อมูล ละเว้น year ไว้จะคืน series รายปีสำหรับกราฟแนวโน้ม">State of Global Air figures for an area — death toll &amp; rates for the context panel. Omit <code class="ic">year</code> to get the full yearly series for the trend chart.</p></div></div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/health-impacts/compare<span class="q">?iso3=DE&amp;vs=region</span></div><p data-th="เปรียบประเทศกับภูมิภาค/โลก — การเทียบที่ทำให้ความเหลื่อมล้ำชัดเจน">Country vs. its region / world — the comparison that makes inequality legible.</p></div></div>
+
+          <div class="api-group" data-th="ภูมิศาสตร์และ meta">Geography &amp; meta</div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/countries</div><p data-th="/regions และ /urban-centers — รายการสำหรับค้นหาและขอบเขตสำหรับตัวกรองและ overlay">/regions &amp; /urban-centers — lookup lists &amp; boundaries for filters and overlays.</p></div></div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/stats/global</div><p data-th="การ์ดสรุป: จำนวนเครื่องที่ online จำนวนประเทศที่ครอบคลุม และ % ประชากรที่ขาดการตรวจวัด">Summary cards: total monitors online, countries covered, % population under-monitored.</p></div></div>
+
+          <div class="api-group" data-th="ส่งออกข้อมูล">Export</div>
+          <div class="api-row"><div class="verb get">GET</div><div class="ep"><div class="path">/export<span class="q">?format=csv|xlsx&amp;dataset=monitors|density&amp;…filters</span></div><p data-th="stream มุมมองที่กรองไว้เป็นไฟล์ดาวน์โหลด — ใช้ตัวกรองชุดเดียวกับแผนที่">Streams the current filtered view as a downloadable file — same filters as the map.</p></div></div>
+        </div>
+
+        <h3 data-th="ข้อตกลงร่วม">Conventions</h3>
+        <ul>
+          <li data-th='<strong>มีเวอร์ชัน</strong> ภายใต้ <code class="ic">/api/v1</code>; การเปลี่ยนที่ breaking ไปที่ <code class="ic">/v2</code>'><strong>Versioned</strong> under <code class="ic">/api/v1</code>; breaking changes go to <code class="ic">/v2</code>.</li>
+          <li data-th='<strong>Cache ได้</strong> — <code class="ic">GET</code> ส่ง <code class="ic">Cache-Control</code> + <code class="ic">ETag</code>; Redis มิร์รอร์ตัวหนักไว้ฝั่งเซิร์ฟเวอร์'><strong>Cacheable</strong> — <code class="ic">GET</code>s send <code class="ic">Cache-Control</code> + <code class="ic">ETag</code>; Redis mirrors heavy ones server-side.</li>
+          <li data-th='<strong>ตรวจสอบ input</strong> — query param ถูก parse ด้วย Zod/DTO; input ผิดคืน 400 ที่ชัดเจน'><strong>Validated</strong> — query params parsed by Zod/DTOs; bad input returns a clear 400.</li>
+          <li data-th='<strong>จำกัด rate</strong> ราย IP ที่ Nginx + Redis เพื่อป้องกัน endpoint สาธารณะถูกใช้งานหนักเกิน'><strong>Rate-limited</strong> per IP at Nginx + Redis so the public endpoint can't be abused.</li>
+        </ul>
+      </section>
+
+      <!-- ---------- 08 DATA EXPORT (CSV) ---------- -->
+      <section id="export">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>08</b> · การส่งออกข้อมูล (CSV)"><b>08</b> · Data Export (CSV)</div>
+          <h2 data-th="ดาวน์โหลดสิ่งที่เห็น — ไม่ใช่แค่ไฟล์เดียว">Download what you see — not just one file</h2>
+          <p data-th="เป้าหมายของฟีเจอร์นี้คือ ใครก็ได้ข้อมูลดิบไปวิเคราะห์ต่อ — นักข่าว นักวิจัย NGO หรือผู้กำหนดนโยบาย ผมตัดสินใจให้ export 5 ชุดข้อมูล โดยมีชุด “ช่องว่างการตรวจวัด” เป็นพระเอก">Here's the decision on the export feature, made for you: rather than a single dump, the tool offers <strong>five focused exports</strong> — each answering a different question — with the <strong>monitoring-gap dataset</strong> as the headline.</p>
+        </div>
+
+        <div class="note">
+          <span class="tag" data-th="การตัดสินใจ — ทำไมถึง 5 ชุด ไม่ใช่ไฟล์เดียว">The decision — why five exports, not one</span>
+          <span data-th="ผู้ใช้แต่ละกลุ่มต้องการไม่เหมือนกัน: <b>นักวิจัย</b> อยากได้รายเครื่องดิบๆ ขณะที่ <b>นักข่าว/นโยบาย</b> อยากได้ตัวเลขสรุประดับประเทศไปวางในสไลด์ได้ทันที จึงแยกเป็นชุดข้อมูลตามระดับความละเอียด แทนที่จะยัดทุกอย่างไว้ในไฟล์เดียวที่ใช้ยาก">Different users need different grains: <b>researchers</b> want raw per-monitor rows, while <b>journalists / policymakers</b> want one tidy row per country to drop into a slide. So exports are split by level of detail instead of one unwieldy mega-file.</span>
+        </div>
+
+        <h3 data-th="สิ่งที่ export ได้ (5 ชุดข้อมูล)">What you can export</h3>
+        <div class="exp-grid">
+
+          <!-- headline: monitoring gap -->
+          <div class="expcard star" style="grid-column: 1 / -1;">
+            <div class="ehead">
+              <div class="accent" style="background:var(--teal)"></div>
+              <span class="star-tag" data-th="ชุดเด่น">headline</span>
+              <div class="efile">monitoring-gap_by-country_2026.csv</div>
+              <h4 data-th="ช่องว่างการตรวจวัด — รวมความหนาแน่น + สุขภาพต่อประเทศ">Monitoring gap — density + health, per country</h4>
+              <p class="grain" data-th="<b>1 แถว = 1 ประเทศ</b> · รวมจำนวนเครื่องต่อหัวประชากรไว้กับยอดผู้เสียชีวิตต่อหัวประชากร — บวกค่า gap ratio ให้เลย"><b>One row = one country</b> · joins monitors-per-capita with deaths-per-capita, plus a computed gap ratio. The export that proves the thesis.</p>
+            </div>
+            <div class="cols">
+              <div class="cl" data-th="คอลัมน์">columns</div>
+              <div class="colchips">
+                <span class="colchip k">iso3</span><span class="colchip k">country</span><span class="colchip">region</span><span class="colchip">population</span><span class="colchip">monitors_total</span><span class="colchip">monitors_online</span><span class="colchip">monitors_per_100k</span><span class="colchip">deaths_pm25</span><span class="colchip">deaths_per_100k</span><span class="colchip">avg_pm25</span><span class="colchip">gap_ratio</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- monitors -->
+          <div class="expcard">
+            <div class="ehead">
+              <div class="accent" style="background:var(--aqi-good)"></div>
+              <div class="efile">monitors_filtered.csv</div>
+              <h4 data-th="รายการเครื่องตรวจ (ตามตัวกรอง)">Monitors (filtered)</h4>
+              <p class="grain" data-th="<b>1 แถว = 1 เครื่อง</b> · รายละเอียดดิบของทุกสถานีตามตัวกรองบนแผนที่ — สำหรับนักวิจัย"><b>One row = one monitor</b> · the raw list at full detail, honouring the current map filters. For researchers.</p>
+            </div>
+            <div class="cols">
+              <div class="cl" data-th="คอลัมน์">columns</div>
+              <div class="colchips">
+                <span class="colchip k">monitor_id</span><span class="colchip">name</span><span class="colchip">manufacturer</span><span class="colchip">type</span><span class="colchip">owner</span><span class="colchip">is_oaf_donated</span><span class="colchip">country</span><span class="colchip">city</span><span class="colchip">lat</span><span class="colchip">lng</span><span class="colchip">status</span><span class="colchip">last_seen</span><span class="colchip">latest_pm25</span><span class="colchip">latest_aqi</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- density -->
+          <div class="expcard">
+            <div class="ehead">
+              <div class="accent" style="background:var(--teal-deep)"></div>
+              <div class="efile">density_by-area.csv</div>
+              <h4 data-th="ความหนาแน่นต่อพื้นที่">Density by area</h4>
+              <p class="grain" data-th="<b>1 แถว = 1 พื้นที่</b> (ประเทศ/ภูมิภาค/เมือง) · จำนวนและความหนาแน่นต่อหัวประชากร"><b>One row = one area</b> (country / region / city) · the counts behind the choropleth.</p>
+            </div>
+            <div class="cols">
+              <div class="cl" data-th="คอลัมน์">columns</div>
+              <div class="colchips">
+                <span class="colchip k">scope_type</span><span class="colchip k">scope_name</span><span class="colchip">population</span><span class="colchip">monitors_total</span><span class="colchip">monitors_online</span><span class="colchip">reference</span><span class="colchip">low_cost</span><span class="colchip">per_100k</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- health -->
+          <div class="expcard">
+            <div class="ehead">
+              <div class="accent" style="background:var(--aqi-bad)"></div>
+              <div class="efile">health-impacts.csv</div>
+              <h4 data-th="ผลกระทบต่อสุขภาพ">Health impacts</h4>
+              <p class="grain" data-th="<b>1 แถว = ประเทศ × มลพิษ × ปี</b> · ตัวเลขจาก State of Global Air แบบดิบ"><b>One row = country × pollutant × year</b> · the raw State of Global Air figures.</p>
+            </div>
+            <div class="cols">
+              <div class="cl" data-th="คอลัมน์">columns</div>
+              <div class="colchips">
+                <span class="colchip k">iso3</span><span class="colchip k">country</span><span class="colchip">year</span><span class="colchip">pollutant</span><span class="colchip">metric</span><span class="colchip">value</span><span class="colchip">rate_per_100k</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- measurements -->
+          <div class="expcard">
+            <div class="ehead">
+              <div class="accent" style="background:var(--aqi-sens)"></div>
+              <div class="efile">measurements_&lt;monitor&gt;.csv</div>
+              <h4 data-th="ค่าตรวจวัดย้อนหลัง (รายเครื่อง)">Measurements (single monitor)</h4>
+              <p class="grain" data-th="<b>1 แถว = 1 ช่วงเวลา</b> · time-series ของเครื่องที่เลือก ตามช่วงวันที่"><b>One row = one timestamp</b> · the history series for a selected monitor over a date range.</p>
+            </div>
+            <div class="cols">
+              <div class="cl" data-th="คอลัมน์">columns</div>
+              <div class="colchips">
+                <span class="colchip k">monitor_id</span><span class="colchip k">ts</span><span class="colchip">pm25</span><span class="colchip">pm10</span><span class="colchip">aqi</span><span class="colchip">co2</span><span class="colchip">temp</span><span class="colchip">rh</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3 data-th="ตัวอย่างไฟล์ monitoring-gap">Sample of the headline file</h3>
+        <div class="sample">
+          <table>
+            <thead>
+              <tr><th>iso3</th><th>country</th><th>population</th><th>monitors_total</th><th>monitors_per_100k</th><th>deaths_per_100k</th><th>gap_ratio</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>DEU</td><td>Germany</td><td class="n">83,200,000</td><td class="n">412</td><td class="n">0.495</td><td class="n">10.8</td><td class="n">21.8</td></tr>
+              <tr><td>IND</td><td>India</td><td class="n">1,417,000,000</td><td class="n">386</td><td class="n">0.027</td><td class="n">115.3</td><td class="n">4270.4</td></tr>
+              <tr><td>NGA</td><td>Nigeria</td><td class="n">218,500,000</td><td class="n">9</td><td class="n">0.004</td><td class="n">98.6</td><td class="n">24650.0</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="sample-cap" data-th="ตัวเลขเป็นตัวอย่างเพื่ออธิบายโครงสร้าง — gap_ratio สูง = ตายมากแต่ตรวจน้อย (deaths_per_100k ÷ monitors_per_100k)">Figures are illustrative — gap_ratio rises when many die but few monitors exist (deaths_per_100k ÷ monitors_per_100k).</p>
+
+        <h3 data-th="กลไกการทำงาน">How it works</h3>
+        <div class="grid g3">
+          <div class="card">
+            <span class="ico" data-th="ตัวกรองเดียวกัน">Same filters</span>
+            <h4 data-th="ได้ข้อมูลตามที่เห็น">What you see is what you get</h4>
+            <p data-th="ปุ่มดาวน์โหลดส่งตัวกรองชุดเดียวกับแผนที่ (ประเภท ผู้ผลิต OAF สถานะ พื้นที่) ไปยัง endpoint <code class=&quot;ic&quot;>/export</code> ไฟล์จึงตรงกับมุมมองบนจอเสมอ">The download button sends the exact same filters as the map (type, OAF, status, area) to <code class="ic">/export</code> — the file always matches the on-screen view.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="รองรับไทย + Excel">UTF-8 + Excel</span>
+            <h4 data-th="ภาษาไทยไม่เพี้ยน">Thai-safe encoding</h4>
+            <p data-th="ไฟล์เป็น UTF-8 พร้อม BOM เพื่อให้ Excel เปิดชื่อไทย/ยูโรปได้ถูกต้อง มีตัวเลือกส่งเป็น .xlsx ด้วย (พารามิเตอร์ <code class=&quot;ic&quot;>format=xlsx</code>)">CSV is UTF-8 with a BOM so Excel opens Thai &amp; other scripts correctly. An <code class="ic">.xlsx</code> option is available via <code class="ic">format=xlsx</code>.</p>
+          </div>
+          <div class="card">
+            <span class="ico" data-th="รองรับไฟล์ใหญ่">Streamed</span>
+            <h4 data-th="ไม่ล่มแม้ข้อมูลเยอะ">Scales to big files</h4>
+            <p data-th="แถวถูก stream จากฐานข้อมูลไปยังผู้ใช้ทีละแถว จึง export รายการหลักหมื่นแถวได้โดยไม่กิน RAM ไฟล์ใหญ่ไปวางไว้บน object storage">Rows stream from the DB row-by-row, so tens of thousands of rows export without blowing up memory; large files can be parked on object storage.</p>
+          </div>
+        </div>
+
+        <div class="note">
+          <span class="tag" data-th="หมายเหตุการให้ Claude Code">Note for Claude Code</span>
+          <span data-th="เพิ่ม query param <code class=&quot;ic&quot;>dataset=gap|monitors|density|health|measurements</code> ให้กับ <code class=&quot;ic&quot;>/export</code> ที่มีอยู่ — ไม่ต้องมี endpoint ใหม่ ชุด <code class=&quot;ic&quot;>gap</code> จะ join <code class=&quot;ic&quot;>density_stats</code> × <code class=&quot;ic&quot;>health_impacts</code> บน country แล้วคำนวณ <code class=&quot;ic&quot;>gap_ratio</code> ใน service layer">Extend the existing <code class="ic">/export</code> with a <code class="ic">dataset=gap|monitors|density|health|measurements</code> param — no new endpoint needed. The <code class="ic">gap</code> dataset joins <code class="ic">density_stats</code> × <code class="ic">health_impacts</code> on country and computes <code class="ic">gap_ratio</code> in the service layer.</span>
+        </div>
+      </section>
+
+      <!-- ---------- 08 SCALING ---------- -->
+      <section id="scaling">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>09</b> · แผนรองรับการขยาย"><b>09</b> · Scaling Plan</div>
+          <h2 data-th="จากเครื่องเดียวสู่บริการระดับโลก">From one demo box to a global service</h2>
+          <p data-th="โค้ดชุดเดียวรันได้ทั้งสามเฟส เปลี่ยนแค่ topology ของการ deploy สร้างสำหรับ Phase 0 ตอน hackathon แต่อย่าตัดสินใจที่จะปิดกั้น Phase 2">The same codebase runs at all three phases — only the deployment topology changes. Build for Phase 0 at the hackathon, but make none of the choices that block Phase 2.</p>
+        </div>
+
+        <div class="phases">
+          <div class="phase p0">
+            <div class="phase-bar"></div>
+            <div class="pl" data-th="Phase 0 · Hackathon">Phase 0 · Hackathon</div>
+            <h4 data-th="เครื่องเดียว">Single host</h4>
+            <div class="scale" data-th="~1 VPS · หลักร้อย user">~1 VPS · hundreds of users</div>
+            <ul>
+              <li data-th="Docker Compose: Nuxt, NestJS, Postgres+PostGIS, Redis, Nginx บนเครื่องเดียว">Docker Compose: Nuxt, NestJS, Postgres+PostGIS, Redis, Nginx on one machine</li>
+              <li data-th="OpenStreetMap raster tiles">OpenStreetMap raster tiles</li>
+              <li data-th='คำนวณ <code class="ic">density_stats</code> ล่วงหน้า + Redis cache อย่างหนัก'>Precomputed <code class="ic">density_stats</code> + aggressive Redis cache</li>
+              <li data-th="worker เดียวสำหรับงาน ingestion">One worker process for ingestion jobs</li>
+            </ul>
+          </div>
+          <div class="phase p1">
+            <div class="phase-bar"></div>
+            <div class="pl" data-th="Phase 1 · นำร่อง">Phase 1 · Pilot</div>
+            <h4 data-th="แยกส่วนและใช้บริการ managed">Split &amp; managed</h4>
+            <div class="scale" data-th="managed DB + CDN · มากกว่า 10k users">managed DB + CDN · 10k+ users</div>
+            <ul>
+              <li data-th="Managed PostgreSQL (read replica) + TimescaleDB สำหรับ readings">Managed PostgreSQL (read replica) + TimescaleDB for readings</li>
+              <li data-th="Cloudflare CDN คั่นหน้า tiles, static และ API ที่ cache">Cloudflare CDN in front of tiles, static &amp; cached API</li>
+              <li data-th="ขยาย API เป็น 2–3 instance แบบ stateless หลัง proxy">API scaled to 2–3 stateless instances behind the proxy</li>
+              <li data-th="แยก worker ออกเป็น service ของตัวเอง ใช้ object storage (S3) สำหรับ export และ raw dump">Workers split onto their own service; object storage (S3) for exports &amp; raw dumps</li>
+            </ul>
+          </div>
+          <div class="phase p2">
+            <div class="phase-bar"></div>
+            <div class="pl" data-th="Phase 2 · ระดับโลก">Phase 2 · Global</div>
+            <h4 data-th="ยืดหยุ่นและตรวจสอบได้">Elastic &amp; observable</h4>
+            <div class="scale" data-th="Kubernetes · autoscaling · ระดับโลก">Kubernetes · autoscaling · global</div>
+            <ul>
+              <li data-th="K8s พร้อม horizontal autoscaling ที่ API และ worker">K8s with horizontal autoscaling on API &amp; workers</li>
+              <li data-th="คำนวณ <strong>vector tiles</strong> ล่วงหน้าสำหรับเครื่องตรวจ — รองรับจุดหลักล้านจุดได้ลื่น">Precomputed <strong>vector tiles</strong> for monitors — millions of points stay smooth</li>
+              <li data-th="แบ่ง partition ฐานข้อมูล + replica; materialized views รีเฟรชตามรอบเวลา">DB partitioning + replicas; materialized views refreshed on schedule</li>
+              <li data-th="Observability: Prometheus + Grafana, Sentry, structured logs; มี CI/CD pipeline">Observability: Prometheus + Grafana, Sentry, structured logs; CI/CD pipeline</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3 data-th="4 ปัจจัยหลักที่สำคัญต่อการขยาย">The four levers that actually matter for scale</h3>
+        <div class="grid g4" style="margin-top:8px">
+          <div class="card"><span class="ico" data-th="ปัจจัย 01">Lever 01</span><h4 data-th="คำนวณล่วงหน้า">Precompute</h4><p data-th="ใช้ aggregate และ materialized views ไม่นับสดๆ">Aggregates &amp; materialized views, never live counts.</p></div>
+          <div class="card"><span class="ico" data-th="ปัจจัย 02">Lever 02</span><h4 data-th="Cache และ CDN">Cache &amp; CDN</h4><p data-th="Redis + Cloudflare รับการอ่านซ้ำไว้ที่ edge">Redis + Cloudflare absorb repeat reads at the edge.</p></div>
+          <div class="card"><span class="ico" data-th="ปัจจัย 03">Lever 03</span><h4 data-th="ทำ tile ของจุด">Tile the points</h4><p data-th="server clustering → vector tiles สำหรับเครื่องตรวจจำนวนมาก">Server clustering → vector tiles for huge monitor counts.</p></div>
+          <div class="card"><span class="ico" data-th="ปัจจัย 04">Lever 04</span><h4 data-th="API แบบ stateless">Stateless API</h4><p data-th="ไม่เก็บ session ในหน่วยความจำ → เพิ่ม instance ได้อิสระ">No session in memory → add instances freely.</p></div>
+        </div>
+      </section>
+
+      <!-- ---------- 09 WORK PLAN ---------- -->
+      <section id="plan">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>10</b> · แผนงานและ Roadmap"><b>10</b> · Work Plan &amp; Roadmap</div>
+          <h2 data-th="สปริ้นต์ hackathon แล้วไปต่อระยะยาว">Hackathon sprint, then the long game</h2>
+          <p data-th="แผน hackathon 3 วันที่ทำได้จริง ได้เครื่องมือที่ demo ได้จริง — ตามด้วย roadmap รายไตรมาสเพื่อพัฒนาให้เป็นเครื่องมือข้อมูลหลักของมูลนิธิ">A realistic 3-day hackathon build that produces a live, demoable tool — followed by the quarterly roadmap to grow it into the foundation's flagship data asset.</p>
+        </div>
+
+        <h3 data-th="Hackathon — 3 วันสู่ demo จริง">Hackathon — 3 days to a live demo</h3>
+        <div class="timeline">
+          <div class="tl-row">
+            <div class="tl-when" data-th="วันที่ 1<br>วางรากฐาน">Day 1<br>Foundation</div>
+            <div class="tl-what">
+              <h4 data-th="ตั้งโครงและแสดงเครื่องตรวจบนแผนที่">Skeleton up &amp; monitors on a map</h4>
+              <p data-th="Monorepo + Docker Compose รันได้ ทำ schema และ migration ของ DB งาน sync AirGradient ดึงเครื่องจริง แผนที่ Leaflet พร้อมมาร์กเกอร์แบบ cluster ลงสีตาม AQI">Monorepo + Docker Compose running. DB schema &amp; migrations. AirGradient sync job pulling real monitors. Leaflet map with clustered markers coloured by AQI.</p>
+              <div class="tl-tags"><span class="tl-tag">repo + compose</span><span class="tl-tag">schema</span><span class="tl-tag">/monitors API</span><span class="tl-tag">map + clusters</span></div>
+            </div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-when" data-th="วันที่ 2<br>เรื่องราว">Day 2<br>The story</div>
+            <div class="tl-what">
+              <h4 data-th="ความหนาแน่น ชั้นสุขภาพ และตัวกรอง">Density, health overlay &amp; filters</h4>
+              <p data-th="รวมความหนาแน่นต่อหัวประชากร + choropleth overlay แผงสุขภาพจาก State of Global Air ตัวกรอง (ประเภท ผู้ผลิต OAF สถานะ) เจาะลึกรายประเทศ — ตัวอย่าง Berlin แบบครบวงจร">Per-capita density aggregation + choropleth overlay. Health-impact panel from State of Global Air. Filters (type, manufacturer, OAF, status). Country drill-down — the Berlin example end-to-end.</p>
+              <div class="tl-tags"><span class="tl-tag">density_stats</span><span class="tl-tag">choropleth</span><span class="tl-tag">filters</span><span class="tl-tag">side panel + charts</span></div>
+            </div>
+          </div>
+          <div class="tl-row">
+            <div class="tl-when" data-th="วันที่ 3<br>ขัดเกลาและส่ง">Day 3<br>Polish &amp; ship</div>
+            <div class="tl-what">
+              <h4 data-th="ส่งออก เล่าเรื่อง และ deploy">Export, narrative, deploy</h4>
+              <p data-th="ส่งออก CSV / Excel ลำดับ story mode ความเหลื่อมล้ำ (มลพิษหนักสุด → มืด → เครื่องตรวจเบาบาง) เก็บรายละเอียดภาพ ปรับ responsive deploy หลัง Nginx + TLS และซ้อม demo">CSV / Excel export. "Inequality" story-mode sequence (worst pollution → dark → sparse monitors). Visual polish, copy, responsive pass. Deploy behind Nginx + TLS and rehearse the demo.</p>
+              <div class="tl-tags"><span class="tl-tag">CSV/XLSX</span><span class="tl-tag">story mode</span><span class="tl-tag">deploy</span><span class="tl-tag">demo script</span></div>
+            </div>
+          </div>
+        </div>
+
+        <h3 style="margin-top:40px" data-th="Roadmap ระยะยาว">Long-term roadmap</h3>
+        <div class="road">
+          <div class="qcard">
+            <span class="q">Q1</span>
+            <h4 data-th="ทำ pipeline ให้แข็งแรง">Harden the pipeline</h4>
+            <ul><li data-th="รีเฟรชอัตโนมัติตามเวลา">Automated scheduled refresh</li><li data-th="ครอบคลุมทุกประเทศทั่วโลก">Full global country coverage</li><li data-th="แดชบอร์ด monitoring และ audit">Monitoring &amp; audit dashboards</li><li data-th="Managed DB + ระบบ backup">Managed DB + backups</li></ul>
+          </div>
+          <div class="qcard">
+            <span class="q">Q2</span>
+            <h4 data-th="ผลิตภัณฑ์สำหรับมูลนิธิ">Foundation product</h4>
+            <ul><li data-th="วิดเจ็ตฝังลงเว็บไซต์ได้">Embeddable website widget</li><li data-th="Story / video mode ที่ขัดเกลา">Polished story / video mode</li><li data-th="ชุดข้อมูลสุขภาพเพิ่ม">More health datasets</li><li data-th="ลิงก์แชร์แบบ deep link">Shareable deep links</li></ul>
+          </div>
+          <div class="qcard">
+            <span class="q">Q3</span>
+            <h4 data-th="ขยายระบบและเปิด API">Scale &amp; open up</h4>
+            <ul><li data-th="Vector tiles + CDN">Vector tiles + CDN</li><li data-th="K8s autoscaling">K8s autoscaling</li><li data-th="Public API สำหรับพาร์ทเนอร์">Public partner API</li><li data-th="การแจ้งเตือนรายพื้นที่">Per-area alerts</li></ul>
+          </div>
+          <div class="qcard">
+            <span class="q">Q4</span>
+            <h4 data-th="เชิงลึกและการเข้าถึง">Insight &amp; reach</h4>
+            <ul><li data-th="รองรับหลายภาษา (i18n)">Localization (i18n)</li><li data-th="มุมมอง mobile-first">Mobile-first views</li><li data-th='โมเดล "ควรวางเครื่องตัวถัดไปตรงไหน"'>"Where to place the next monitor" model</li><li data-th="การวิเคราะห์ขั้นสูง">Advanced analytics</li></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 10 HANDOFF ---------- -->
+      <section id="handoff">
+        <div class="sec-head">
+          <div class="sec-kicker" data-th="<b>11</b> · ส่งต่องานพัฒนา"><b>11</b> · Build Handoff</div>
+          <h2 data-th="สำหรับผู้พัฒนา (Claude Code)">For the implementer (Claude Code)</h2>
+          <p data-th="โครงสร้าง repository, environment และลำดับการสร้างที่ชัดเจน เพื่อให้ระบบรันได้ในทุกขั้นตอน">Repository layout, environment, and the exact order to build things so the system comes up working at every step.</p>
+        </div>
+
+        <h3 data-th="โครงสร้าง Monorepo">Monorepo structure</h3>
+        <div class="tree">
+<span class="cmt"># pnpm workspace monorepo</span>
+aq-density-map/
+├── <span class="dir">apps/</span>
+│   ├── <span class="dir">web/</span>            <span class="cmt"># Nuxt 3 + Leaflet frontend</span>
+│   └── <span class="dir">api/</span>            <span class="cmt"># NestJS — REST + ingestion workers + export</span>
+├── <span class="dir">packages/</span>
+│   └── <span class="dir">shared/</span>         <span class="cmt"># Zod schemas + TS types shared web↔api</span>
+├── <span class="dir">infra/</span>
+│   ├── docker-compose.yml  <span class="cmt"># postgis, redis, api, web, nginx</span>
+│   ├── nginx/              <span class="cmt"># reverse proxy + TLS config</span>
+│   └── db/                 <span class="cmt"># migrations + seed (geographies, health data)</span>
+└── README.md
+</div>
+
+        <h3 data-th="ลำดับการสร้าง">Build order</h3>
+        <div class="checklist">
+          <div class="check"><div class="box"></div><div><span class="ct" data-th="ขั้นที่ 01 · scaffold">Step 01 · scaffold</span><h4 data-th="ตั้งระบบเปล่าให้รันได้">Bring up the empty system</h4><p data-th='pnpm workspace, Docker Compose (Postgres+PostGIS, Redis), Nuxt + NestJS เปล่าๆ และ Nginx proxy <code class="ic">docker compose up</code> ควรเสิร์ฟหน้า hello ผ่าน <code class="ic">/api/v1/health</code> ได้'>pnpm workspace, Docker Compose (Postgres+PostGIS, Redis), bare Nuxt + NestJS, Nginx proxy. <code class="ic">docker compose up</code> serves a hello page through <code class="ic">/api/v1/health</code>.</p></div></div>
+          <div class="check"><div class="box"></div><div><span class="ct" data-th="ขั้นที่ 02 · schema">Step 02 · schema</span><h4 data-th="Migration + seed ภูมิศาสตร์">Migrations + geography seed</h4><p data-th="สร้างตารางทั้งหมดและ PostGIS index seed ขอบเขตประเทศ/ภูมิภาค ประชากร และชุดข้อมูลสุขภาพ State of Global Air">Create all tables &amp; PostGIS indexes. Seed countries/regions geometries, population, and the State of Global Air health dataset.</p></div></div>
+          <div class="check"><div class="box"></div><div><span class="ct" data-th="ขั้นที่ 03 · ingest">Step 03 · ingest</span><h4 data-th="Worker sync AirGradient">AirGradient sync worker</h4><p data-th='BullMQ job ทำ upsert เครื่องตรวจและเพิ่ม measurements; geo-tag แต่ละเครื่องไปยังประเทศ/เมือง บันทึกลง <code class="ic">ingestion_runs</code>'>BullMQ job upserting monitors &amp; appending measurements; geo-tag each monitor to its country/urban center; log to <code class="ic">ingestion_runs</code>.</p></div></div>
+          <div class="check"><div class="box"></div><div><span class="ct" data-th="ขั้นที่ 04 · aggregate">Step 04 · aggregate</span><h4 data-th="งาน density_stats">density_stats job</h4><p data-th='คำนวณจำนวนและค่าต่อหัวประชากรลง <code class="ic">density_stats</code> หลังการ sync แต่ละครั้ง'>Compute counts &amp; per-capita figures into <code class="ic">density_stats</code> after each sync.</p></div></div>
+          <div class="check"><div class="box"></div><div><span class="ct" data-th="ขั้นที่ 05 · api">Step 05 · api</span><h4 data-th="Read endpoints + cache">Read endpoints + cache</h4><p data-th="ทำ /monitors, /density, /health-impacts, /export พร้อม validation ด้วย Zod, Redis cache และ Swagger docs">Implement /monitors, /density, /health-impacts, /export with Zod validation, Redis caching, and Swagger docs.</p></div></div>
+          <div class="check"><div class="box"></div><div><span class="ct" data-th="ขั้นที่ 06 · frontend">Step 06 · frontend</span><h4 data-th="แผนที่ แผง ตัวกรอง ส่งออก">Map, panel, filters, export</h4><p data-th="Leaflet cluster + choropleth แผงข้างรายประเทศพร้อมกราฟ ตัวควบคุมตัวกรอง ดาวน์โหลด CSV/XLSX และ story mode">Leaflet clusters + choropleth, the country side-panel with charts, filter controls, CSV/XLSX download, and story mode.</p></div></div>
+        </div>
+
+        <h3 data-th="ตัวแปร Environment">Environment variables</h3>
+        <div class="code">
+<span class="c"># apps/api/.env</span>
+<span class="k">DATABASE_URL</span>=<span class="s">postgres://app:pass@postgres:5432/aqmap</span>
+<span class="k">REDIS_URL</span>=<span class="s">redis://redis:6379</span>
+<span class="k">AIRGRADIENT_API_BASE</span>=<span class="s">https://map-data-int.airgradient.com/map/api/v1</span>
+<span class="k">AIRGRADIENT_API_KEY</span>=<span class="s">&lt;if required&gt;</span>
+<span class="k">SYNC_READINGS_CRON</span>=<span class="s">"*/10 * * * *"</span>
+<span class="k">SYNC_ROSTER_CRON</span>=<span class="s">"0 3 * * *"</span>
+
+<span class="c"># apps/web/.env</span>
+<span class="k">NUXT_PUBLIC_API_BASE</span>=<span class="s">/api/v1</span>
+<span class="k">NUXT_PUBLIC_TILE_URL</span>=<span class="s">https://tile.openstreetmap.org/{z}/{x}/{y}.png</span>
+</div>
+
+        <div class="note">
+          <span class="tag" data-th="คำสั่งแรก">First command</span>
+          <span data-th='<code class="ic">git clone … &amp;&amp; cp .env.example .env &amp;&amp; docker compose -f infra/docker-compose.yml up</code> — ควร boot ทั้ง stack ขึ้นมา แล้วตรวจกับลิงก์ในโจทย์: เอกสาร AirGradient Map API และตารางสุขภาพ State of Global Air'><code class="ic">git clone … &amp;&amp; cp .env.example .env &amp;&amp; docker compose -f infra/docker-compose.yml up</code> — should boot the whole stack. Verify against the brief's links: the AirGradient Map API docs and the State of Global Air health table.</span>
+        </div>
+
+        <footer class="foot">
+          <p data-th='System Design v1.0 · Air Quality Monitoring Density Map · Open Air Foundation Hackathon<br>
+          แหล่งข้อมูลที่ต้องเชื่อมต่อ: <a class="inline" href="https://map-data-int.airgradient.com/map/api/v1/docs#/">AirGradient Map API</a> · <a class="inline" href="https://www.stateofglobalair.org/data">State of Global Air</a>'>System Design v1.0 · Air Quality Monitoring Density Map · Open Air Foundation Hackathon<br>
+          Sources to wire up: <a class="inline" href="https://map-data-int.airgradient.com/map/api/v1/docs#/">AirGradient Map API</a> · <a class="inline" href="https://www.stateofglobalair.org/data">State of Global Air</a></p>
+        </footer>
+      </section>
+
+    </div>
+  </main>
+</div>
+<script>
+(function () {
+  function apply(lang) {
+    document.documentElement.lang = lang;
+    document.querySelectorAll('[data-th]').forEach(function (el) {
+      if (el.__en === undefined) el.__en = el.innerHTML;
+      el.innerHTML = (lang === 'th') ? el.getAttribute('data-th') : el.__en;
+    });
+    document.querySelectorAll('.lang-toggle button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.lang === lang);
+    });
+    try { localStorage.setItem('sysdoc-lang', lang); } catch (e) {}
+  }
+  window.__setLang = apply;
+  var saved = 'en';
+  try { saved = localStorage.getItem('sysdoc-lang') || 'en'; } catch (e) {}
+  function init() {
+    document.querySelectorAll('.lang-toggle button').forEach(function (b) {
+      b.addEventListener('click', function () { apply(b.dataset.lang); });
+    });
+    apply(saved);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</body>
+</html>

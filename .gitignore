@@ -1,0 +1,32 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+.output/
+.nuxt/
+.nitro/
+.cache/
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# debug artifacts
+debug-artifacts/
+*.local
+
+# large standalone design exports (keep the editable HTML refs, drop the bundled blobs)
+design-reference/project/*standalone*.html
