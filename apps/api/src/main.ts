@@ -4,13 +4,24 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { runSeed } from './seed/seed';
+import { runIngest } from './ingest/ingest';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('bootstrap');
 
   if (process.env.SEED_ON_START === 'true') {
-    logger.log('SEED_ON_START=true — seeding database');
+    logger.log('SEED_ON_START=true — seeding reference data');
     await runSeed();
+  }
+
+  // live monitors from the AirGradient Map API; if it's unreachable we keep the seeded data
+  if (process.env.INGEST_ON_START === 'true') {
+    logger.log('INGEST_ON_START=true — pulling live monitors');
+    try {
+      await runIngest();
+    } catch (err) {
+      logger.warn(`live ingest failed, serving seeded data: ${(err as Error).message}`);
+    }
   }
 
   const app = await NestFactory.create(AppModule);

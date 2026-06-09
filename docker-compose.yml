@@ -35,6 +35,8 @@ services:
       REDIS_URL: redis://redis:6379
       PORT: "3001"
       SEED_ON_START: "true"
+      INGEST_ON_START: "true"
+      AIRGRADIENT_MAP_API: "https://map-data.airgradient.com/map/api/v1"
       CORS_ORIGIN: "*"
     ports:
       - "3001:3001"

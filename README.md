@@ -41,10 +41,15 @@ mode · CSV export (4 datasets) · EN/TH.
 
 ## Data sources
 
+Monitors — **live** from the [AirGradient Map API](https://map-data.airgradient.com/map/api/v1/docs)
+(~17k public sensors worldwide, low-cost + reference; AirGradient / OpenAQ / SensorCommunity) ·
 Deaths — [State of Global Air](https://www.stateofglobalair.org/data) (GBD/IHME) ·
-Population — [UN WPP](https://population.un.org/wpp/) + World Bank ·
-Monitors — [AirGradient Map API](https://map-data-int.airgradient.com/map/api/v1/docs).
-MVP runs on a deterministic seed that mirrors these shapes; swapping to live ingestion is Phase 2.
+Population — [UN WPP](https://population.un.org/wpp/) + World Bank.
+
+Monitors are ingested live on startup (`npm --prefix apps/api run ingest`, or `INGEST_ON_START=true`)
+and assigned to countries via PostGIS point-in-polygon; the monitoring gap is then computed from
+**real monitor density × reference death burden**. Deaths/population are seeded reference data
+(annual GBD/UN datasets — no live feed). If the API is unreachable, the seeded sample is served instead.
 
 ## License
 

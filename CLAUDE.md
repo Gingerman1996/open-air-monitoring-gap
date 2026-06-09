@@ -41,8 +41,11 @@ design-reference/  original prototypes + chat (read-only reference)
 # infra only (fast dev loop): Postgres+PostGIS + Redis
 docker compose up -d postgres redis
 
-# seed the DB (idempotent)
+# seed reference data (countries + deaths + population), idempotent
 npm --prefix apps/api run seed
+
+# pull LIVE monitors from the AirGradient Map API (replaces the sample monitors)
+npm --prefix apps/api run ingest
 
 # dev servers
 npm --prefix apps/api run start:dev     # http://localhost:3001/api/v1  (docs at /api/v1/docs)

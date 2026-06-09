@@ -14,7 +14,7 @@ interface CountryDensity {
 }
 interface GlobalStats {
   monitors: number; cities: number; countries_with_data: number;
-  widest_gap: { city: string; country: string; gap_ratio: number } | null;
+  widest_gap: { name: string; gap_ratio: number } | null;
   gap_threshold_lv1: number | null;
 }
 
@@ -184,7 +184,7 @@ function updatePill() {
   pill.value =
     `<span>${t('Monitors', 'เครื่องตรวจวัด')}: <b>${currentMonitors().length.toLocaleString()}</b></span>` +
     `<span>${t('Cities', 'เมือง')}: <b>${stats.cities}</b></span>` +
-    (worst ? `<span class="gp">${t('Widest gap', 'ช่องว่างมากสุด')}: ${worst.city}</span>` : '');
+    (worst ? `<span class="gp">${t('Widest gap', 'ช่องว่างมากสุด')}: ${worst.name}</span>` : '');
 }
 
 // ---- deaths sparkline (data from /health-impacts series) ----

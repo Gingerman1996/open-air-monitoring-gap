@@ -20,9 +20,11 @@ export class StatsController {
          (SELECT COUNT(*) FROM urban_centers)::int AS cities,
          (SELECT COUNT(*) FROM density_stats WHERE scope_type='country' AND gap_level IS NOT NULL)::int AS countries`,
     );
-    const [worst] = await this.db.query<{ city: string; country: string; gap_ratio: number }>(
-      `SELECT scope_name AS city, country_name AS country, gap_ratio::float AS gap_ratio
-       FROM density_stats WHERE scope_type='city' ORDER BY gap_ratio DESC LIMIT 1`,
+    const [worst] = await this.db.query<{ name: string; gap_ratio: number }>(
+      `SELECT scope_name AS name, gap_ratio::float AS gap_ratio
+       FROM density_stats
+       WHERE scope_type='country' AND gap_level IS NOT NULL
+       ORDER BY gap_ratio DESC LIMIT 1`,
     );
     return {
       monitors: counts?.monitors ?? 0,

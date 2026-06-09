@@ -116,19 +116,24 @@ PostGIS uses: `ST_Contains(country.geom, monitor.location)` for point-in-country
 
 Responses cache-keyed in Redis (TTL ~5 min) for the aggregate endpoints.
 
-## 7. Data flow (MVP)
+## 7. Data flow
 
 1. `db/init.sql` creates extensions + schema.
-2. `db/seed` loads: countries (geom from world-atlas 110m), `health_impacts` (per-country deaths +
-   synthesised 1990–2023 series), `urban_centers` (35 cities), `monitors` (scattered per city —
-   same generator as `demo-data.js`), then computes `density_stats` (incl. `gap_level` quintiles).
-3. API serves pre-aggregated answers; Redis caches the heavy ones.
-4. Frontend reads the API, renders the map + panels, exports CSV from `/export`.
+2. `db/seed` loads **reference data**: countries (geom from world-atlas 110m), `health_impacts`
+   (per-country PM2.5 deaths + 1990–2023 series), and a sample-monitor fallback.
+3. **Live ingest** (`apps/api/src/ingest`, `INGEST_ON_START=true`) pulls ~17k real public sensors
+   from the AirGradient Map API (`/measurements/current`) + real cities (`/urban-centers`), assigns
+   each sensor to a country via PostGIS `ST_Contains`, then recomputes `density_stats` — the
+   monitoring gap = real monitor density ÷ reference death burden, levelled into quintiles with
+   SQL `ntile(5)`. If the API is unreachable the seeded sample is kept.
+4. API serves pre-aggregated answers; Redis caches the heavy ones.
+5. Frontend reads the API, renders the map + panels, exports CSV from `/export`.
 
 ## 8. Scaling roadmap (post-hackathon)
 
-- **Phase 1 (MVP):** seed data, single API, Leaflet `L.geoJSON` choropleth. ← *we are here*
-- **Phase 2 (Pilot):** real ingestion workers (BullMQ) pulling AirGradient + SoGA on a schedule;
+- **Phase 1 (MVP):** single API, Leaflet `L.geoJSON` choropleth, **live AirGradient ingest on
+  startup** + seeded reference deaths/population. ← *we are here*
+- **Phase 2 (Pilot):** scheduled ingestion workers (BullMQ) refreshing on a cadence + history;
   vector tiles for boundaries (Martin / pg_tileserv) + MapLibre; TimescaleDB for `measurements`.
 - **Phase 3 (Global):** Kubernetes, read replicas, CDN-fronted tiles, regional API.
 
