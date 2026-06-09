@@ -1,43 +1,15 @@
 /**
- * Seeds REFERENCE data only — country polygons, PM2.5-attributable deaths, and population.
- * These are annual GBD/UN datasets with no live feed, so they're seeded; the live monitor set
- * comes from the AirGradient ingest (src/ingest). Idempotent: skips if countries already exist
- * (set FORCE_RESEED=true to rebuild).
+ * Seeds the STRUCTURAL reference data: the schema, the country polygons (world-atlas /
+ * Natural Earth), and the source-provenance rows shown in the UI. Population and the
+ * deaths/DALYs series are no longer hardcoded here — they are pulled live from the World
+ * Bank + WHO GHO APIs by the reference refresh (src/ingest/reference), on boot and monthly.
+ * Idempotent: skips if countries already exist (set FORCE_RESEED=true to rebuild).
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Pool } from 'pg';
 import { feature } from 'topojson-client';
 import type { FeatureCollection, Geometry } from 'geojson';
-
-// country deaths attributable to PM2.5 + population (millions), keyed by world-atlas names
-const CDraw: Record<string, [number, number]> = {
-  India: [1600000, 1417], China: [1300000, 1412],
-  Indonesia: [220000, 275], Pakistan: [256000, 235], Bangladesh: [173000, 171],
-  'United States of America': [90000, 333], Russia: [130000, 144], Brazil: [66000, 215], Japan: [75000, 125],
-  Germany: [72000, 83], Egypt: [90000, 110], Nigeria: [100000, 218], Vietnam: [70000, 98], Philippines: [66000, 114],
-  Myanmar: [80000, 54], Turkey: [70000, 85], Iran: [70000, 88], Mexico: [64000, 128], Ukraine: [64000, 43],
-  Ethiopia: [90000, 123], 'Dem. Rep. Congo': [80000, 99], Thailand: [64000, 72],
-  'United Kingdom': [30000, 67], France: [40000, 68], Italy: [45000, 59], Spain: [25000, 47], Poland: [45000, 38],
-  'South Africa': [40000, 60], Argentina: [30000, 46], Colombia: [30000, 52], Iraq: [35000, 43], Afghanistan: [50000, 41],
-  Uzbekistan: [40000, 35], Sudan: [40000, 46], Tanzania: [45000, 65], Kenya: [35000, 54], Uganda: [30000, 47],
-  Nepal: [42000, 30], Morocco: [30000, 37], Algeria: [30000, 44], 'Saudi Arabia': [30000, 36], Peru: [25000, 34],
-  Kazakhstan: [25000, 19], Ghana: [25000, 33], Malaysia: [25000, 33], 'South Korea': [30000, 52], Netherlands: [21000, 17],
-  Canada: [18000, 38], Australia: [9000, 26], Sweden: [4000, 10], Norway: [3000, 5], Finland: [4000, 6], Chile: [18000, 19],
-};
-
-/** yearly deaths series 1990-2023 (rising trend off the latest figure) — drives the panel sparkline */
-function deathSeries(d: number): { y: number; v: number }[] {
-  const out: { y: number; v: number }[] = [];
-  const s = 0.6;
-  for (let y = 1990; y <= 2023; y++) {
-    const t = (y - 1990) / 33;
-    let f = s + (1 - s) * Math.pow(t, 0.9);
-    if (y >= 2019 && y <= 2021) f *= 0.97;
-    out.push({ y, v: Math.round(d * f) });
-  }
-  return out;
-}
 
 function findFile(candidates: string[]): string {
   for (const c of candidates) if (c && existsSync(c)) return c;
@@ -82,6 +54,7 @@ export async function runSeed(): Promise<void> {
 
       for (const s of [
         ['State of Global Air', 'deaths', 'https://www.stateofglobalair.org/data', 'HEI / GBD (IHME)'],
+        ['WHO Global Health Observatory', 'deaths', 'https://www.who.int/data/gho', 'WHO GHO'],
         ['UN World Population Prospects', 'population', 'https://population.un.org/wpp/', 'UN, World Bank'],
         ['AirGradient Map API', 'monitors', 'https://map-data.airgradient.com/map/api/v1/docs', 'AirGradient'],
         ['Natural Earth (world-atlas)', 'boundaries', 'https://github.com/topojson/world-atlas', 'public domain'],
@@ -97,32 +70,17 @@ export async function runSeed(): Promise<void> {
       for (const f of fc.features) {
         const name = f.properties?.name;
         if (!name || !f.geometry) continue;
-        const popM = CDraw[name]?.[1];
+        // population is filled live by the reference refresh (World Bank), keyed on iso_n3
         await client.query(
-          `INSERT INTO countries(name, iso_n3, population, geom)
-           VALUES ($1, $2, $3, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($4), 4326)))
+          `INSERT INTO countries(name, iso_n3, geom)
+           VALUES ($1, $2, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($3), 4326)))
            ON CONFLICT (name) DO NOTHING`,
-          [name, f.id != null ? Number(f.id) : null, popM ? Math.round(popM * 1e6) : null, JSON.stringify(f.geometry)],
+          [name, f.id != null ? Number(f.id) : null, JSON.stringify(f.geometry)],
         );
-      }
-      const cidByName = new Map<string, number>();
-      for (const r of (await client.query<{ id: number; name: string }>('SELECT id, name FROM countries')).rows) {
-        cidByName.set(r.name, r.id);
-      }
-
-      for (const [name, [deaths, popM]] of Object.entries(CDraw)) {
-        const pop = popM * 1e6;
-        for (const { y, v } of deathSeries(deaths)) {
-          await client.query(
-            `INSERT INTO health_impacts(country_id, country_name, year, pollutant, deaths, deaths_per_100k)
-             VALUES ($1,$2,$3,'pm25',$4,$5)`,
-            [cidByName.get(name) ?? null, name, y, v, +((v / pop) * 100000).toFixed(2)],
-          );
-        }
       }
 
       await client.query('COMMIT');
-      log(`done — ${fc.features.length} country polygons, ${Object.keys(CDraw).length} countries with death data.`);
+      log(`done — ${fc.features.length} country polygons. Population + deaths/DALYs pulled by the reference refresh.`);
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

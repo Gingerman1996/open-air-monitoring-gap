@@ -11,9 +11,10 @@ ENV NODE_ENV=production
 COPY apps/api/package.json ./
 RUN npm install --omit=dev
 COPY --from=build /app/apps/api/dist ./dist
-# world-atlas + schema are read by the seed at startup
+# world-atlas + schema (seed) and ISO3166 crosswalk (reference refresh) are read at startup
 COPY db /app/db
 ENV WORLD_ATLAS_PATH=/app/db/data/countries-110m.json
 ENV INIT_SQL_PATH=/app/db/init.sql
+ENV ISO3166_PATH=/app/db/data/iso3166.json
 EXPOSE 3001
 CMD ["node", "dist/main.js"]

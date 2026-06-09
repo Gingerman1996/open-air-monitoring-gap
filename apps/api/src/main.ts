@@ -4,14 +4,25 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { runSeed } from './seed/seed';
+import { runReferenceRefresh } from './ingest/reference';
 import { runIngest } from './ingest/ingest';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('bootstrap');
 
   if (process.env.SEED_ON_START === 'true') {
-    logger.log('SEED_ON_START=true — seeding reference data');
+    logger.log('SEED_ON_START=true — seeding schema + country polygons');
     await runSeed();
+  }
+
+  // live reference data (World Bank population, WHO deaths/DALYs); on failure we keep prior data
+  if (process.env.REFERENCE_ON_START === 'true') {
+    logger.log('REFERENCE_ON_START=true — pulling reference data (population, deaths, DALYs)');
+    try {
+      await runReferenceRefresh();
+    } catch (err) {
+      logger.warn(`reference refresh failed, serving prior data: ${(err as Error).message}`);
+    }
   }
 
   // live monitors from the AirGradient Map API; if it's unreachable we keep the seeded data
