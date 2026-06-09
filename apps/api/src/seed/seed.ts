@@ -79,6 +79,24 @@ export async function runSeed(): Promise<void> {
         );
       }
 
+      // world-atlas has a few antimeridian-crossing polygons (Russia/Fiji/Antarctica) where one ring
+      // spans -180..180; in the Web-Mercator MVT choropleth that ring's wrap edge draws as a horizontal
+      // band across the map. Split them at the dateline (shift to 0..360, cut, shift the east half back)
+      // and repair any remaining self-intersections so ST_Contains + tiles behave.
+      await client.query(
+        `UPDATE countries c
+         SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Union(
+               ST_Intersection(x.g, ST_MakeEnvelope(-180,-90,180,90,4326)),
+               ST_Translate(ST_Intersection(x.g, ST_MakeEnvelope(180,-90,360,90,4326)), -360, 0)
+             )), 3))
+         FROM (SELECT id, ST_MakeValid(ST_ShiftLongitude(ST_MakeValid(geom))) g
+               FROM countries WHERE ST_XMin(geom) < -179 AND ST_XMax(geom) > 179) x
+         WHERE c.id = x.id`,
+      );
+      await client.query(
+        `UPDATE countries SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3)) WHERE NOT ST_IsValid(geom)`,
+      );
+
       await client.query('COMMIT');
       log(`done — ${fc.features.length} country polygons. Population + deaths/DALYs pulled by the reference refresh.`);
     } catch (err) {
