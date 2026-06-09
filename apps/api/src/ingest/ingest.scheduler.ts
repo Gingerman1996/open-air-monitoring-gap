@@ -6,7 +6,7 @@ import { runReferenceRefresh } from './reference';
 /**
  * BullMQ-backed scheduled refreshes, both gated by INGEST_SCHEDULE:
  *   - monitors:   re-pull the AirGradient sensors every INGEST_INTERVAL_MS (default 10 min).
- *   - reference:  re-pull World Bank population + WHO deaths/DALYs on REFERENCE_CRON
+ *   - reference:  re-pull World Bank population + State of Global Air (GBD) deaths/DALYs on REFERENCE_CRON
  *                 (default the 1st of each month, Asia/Bangkok) — those are annual datasets.
  * The boot-time INGEST_ON_START / REFERENCE_ON_START give an immediate first load; these keep
  * them fresh after.
@@ -48,7 +48,9 @@ export class IngestScheduler implements OnModuleInit, OnModuleDestroy {
       { pattern: REFERENCE_CRON, tz: REFERENCE_TZ },
       async () => {
         this.logger.log('scheduled refresh — pulling reference data (population, deaths, DALYs)');
-        await runReferenceRefresh();
+        await runReferenceRefresh(true);
+        // recompute density_stats/gap (and the deaths baked into the tiles) off the fresh reference
+        await runIngest();
       },
       `reference refresh scheduled at cron '${REFERENCE_CRON}' (${REFERENCE_TZ})`,
     );

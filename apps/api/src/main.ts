@@ -15,7 +15,7 @@ async function bootstrap(): Promise<void> {
     await runSeed();
   }
 
-  // live reference data (World Bank population, WHO deaths/DALYs); on failure we keep prior data
+  // live reference data (World Bank population, State of Global Air GBD deaths/DALYs); on failure we keep prior data
   if (process.env.REFERENCE_ON_START === 'true') {
     logger.log('REFERENCE_ON_START=true — pulling reference data (population, deaths, DALYs)');
     try {

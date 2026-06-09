@@ -2,7 +2,7 @@
  * Seeds the STRUCTURAL reference data: the schema, the country polygons (world-atlas /
  * Natural Earth), and the source-provenance rows shown in the UI. Population and the
  * deaths/DALYs series are no longer hardcoded here — they are pulled live from the World
- * Bank + WHO GHO APIs by the reference refresh (src/ingest/reference), on boot and monthly.
+ * Bank + State of Global Air (GBD) APIs by the reference refresh (src/ingest/reference), on boot and monthly.
  * Idempotent: skips if countries already exist (set FORCE_RESEED=true to rebuild).
  */
 import { readFileSync, existsSync } from 'node:fs';
@@ -53,8 +53,7 @@ export async function runSeed(): Promise<void> {
       await client.query('TRUNCATE sources, health_impacts, regions, countries RESTART IDENTITY CASCADE');
 
       for (const s of [
-        ['State of Global Air', 'deaths', 'https://www.stateofglobalair.org/data', 'HEI / GBD (IHME)'],
-        ['WHO Global Health Observatory', 'deaths', 'https://www.who.int/data/gho', 'WHO GHO'],
+        ['State of Global Air 2025', 'deaths', 'https://www.stateofglobalair.org/data', 'HEI / GBD 2023 (IHME)'],
         ['UN World Population Prospects', 'population', 'https://population.un.org/wpp/', 'UN, World Bank'],
         ['AirGradient Map API', 'monitors', 'https://map-data.airgradient.com/map/api/v1/docs', 'AirGradient'],
         ['Natural Earth (world-atlas)', 'boundaries', 'https://github.com/topojson/world-atlas', 'public domain'],
