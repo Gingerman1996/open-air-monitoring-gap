@@ -131,11 +131,13 @@ Responses cache-keyed in Redis (TTL ~5 min) for the aggregate endpoints.
 
 ## 8. Scaling roadmap (post-hackathon)
 
-- **Phase 1 (MVP):** single API, Leaflet `L.geoJSON` choropleth, **live AirGradient ingest on
-  startup + a BullMQ worker refreshing every 10 min**, seeded reference deaths/population. ← *we are here*
-- **Phase 2 (Pilot):** measurement history + per-source cadences; vector tiles for boundaries
-  (Martin / pg_tileserv) + MapLibre; TimescaleDB for `measurements`.
-- **Phase 3 (Global):** Kubernetes, read replicas, CDN-fronted tiles, regional API.
+- **Phase 1 (MVP):** ✅ single API, choropleth, live AirGradient ingest on startup + a BullMQ
+  worker refreshing every 10 min, seeded reference deaths/population.
+- **Phase 2 (Pilot):** ✅ **TimescaleDB** hypertable for `measurements` with accumulating history
+  (per-monitor PM2.5 trend on pin click); **Martin** serving the country choropleth as PostGIS
+  **vector tiles**, rendered by **Leaflet.VectorGrid** (deaths baked into each tile). ← *we are here*
+- **Phase 3 (Global):** continuous-aggregate rollups + retention on the hypertable; MapLibre GL;
+  Kubernetes, read replicas, CDN-fronted tiles, regional API.
 
 ## 9. Success criteria (definition of done)
 

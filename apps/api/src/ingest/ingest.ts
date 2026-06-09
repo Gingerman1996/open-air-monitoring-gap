@@ -89,7 +89,10 @@ async function insertMonitors(client: PoolClient, rows: Measurement[], now: numb
     await client.query(
       `INSERT INTO monitors (external_id,name,manufacturer,type,owner,status,pm25,aqi,last_seen,location)
        VALUES ${tuples.join(',')}
-       ON CONFLICT (external_id) DO NOTHING`,
+       ON CONFLICT (external_id) DO UPDATE SET
+         name=EXCLUDED.name, manufacturer=EXCLUDED.manufacturer, type=EXCLUDED.type,
+         owner=EXCLUDED.owner, status=EXCLUDED.status, pm25=EXCLUDED.pm25, aqi=EXCLUDED.aqi,
+         last_seen=EXCLUDED.last_seen, location=EXCLUDED.location`,
       values,
     );
     inserted += chunk.length;
@@ -153,21 +156,29 @@ export async function runIngest(): Promise<void> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      // replace only the live entities — countries / health_impacts / sources are seeded reference data
-      await client.query(`TRUNCATE measurements, monitors RESTART IDENTITY CASCADE`);
-      await client.query(`TRUNCATE urban_centers RESTART IDENTITY CASCADE`);
+      // density + city catalog are snapshots — rebuilt each run. monitors are UPSERTed (stable
+      // ids) and measurements are APPENDED, so the time-series accumulates across refreshes.
+      // (DELETE, not TRUNCATE CASCADE, on urban_centers — CASCADE would wipe monitors via FK.)
       await client.query(`DELETE FROM density_stats`);
+      await client.query(`DELETE FROM urban_centers`);
 
       await insertMonitors(client, usable, now);
-      // latest reading per monitor, straight off the monitor row
+      // graceful staleness — anything not refreshed recently is offline (keeps vanished sensors)
       await client.query(
-        `INSERT INTO measurements (monitor_id, ts, pm25, aqi)
-         SELECT id, last_seen, pm25, aqi FROM monitors`,
+        `UPDATE monitors SET status = CASE
+           WHEN last_seen >= now() - interval '48 hours' THEN 'online' ELSE 'offline' END`,
       );
       // assign each sensor to a country by point-in-polygon (PostGIS)
       await client.query(
         `UPDATE monitors m SET country_id = c.id, country = c.name
          FROM countries c WHERE ST_Contains(c.geom, m.location)`,
+      );
+      // append the latest reading per monitor; dedupe by (monitor_id, ts) so unchanged readings
+      // don't create duplicate history points
+      await client.query(
+        `INSERT INTO measurements (monitor_id, ts, pm25, aqi)
+         SELECT id, last_seen, pm25, aqi FROM monitors
+         ON CONFLICT (monitor_id, ts) DO NOTHING`,
       );
 
       // country density from real monitors + reference deaths/population

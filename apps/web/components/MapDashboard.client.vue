@@ -44,9 +44,10 @@ let stats: GlobalStats | null = null;
 let map: L.Map;
 let cluster: L.MarkerClusterGroup;
 const healthLayer = L.layerGroup();
-let countryLayer: L.GeoJSON | null = null;
-let selLayer: L.Path | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let choroLayer: any = null; // Leaflet.VectorGrid layer (untyped lib)
 let selName: string | null = null;
+let selDeaths: number | null = null;
 const seriesCache = new Map<string, { year: number; deaths: number; deaths_per_100k: number }[]>();
 
 // ---- palettes (ported from the prototype) ----
@@ -84,62 +85,51 @@ const fmt = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : String(
 const escTip = (s: string) => s.replace(/"/g, '&quot;');
 const qmark = (tip: string) => ` <span class="qmark" tabindex="0" data-tip="${escTip(tip)}">?</span>`;
 
-// ---- choropleth ----
-function cStyle(name: string, sel: boolean): L.PathOptions {
-  const rec = densityByCountry.get(name);
-  const deaths = rec?.deaths ?? choroDeaths.get(name) ?? 0;
+// ---- choropleth (PostGIS → Martin vector tiles, rendered by Leaflet.VectorGrid) ----
+// deaths are baked into each tile feature, so the colour comes straight off the tile.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function vgStyle(deaths: number | null | undefined, sel: boolean) {
   return {
-    fillColor: deathColor(deaths),
+    fill: true,
+    fillColor: deathColor(deaths ?? 0), // not-in-dataset → 0 → navy (lowest bucket), as in SoGA maps
+    fillOpacity: sel ? 0.55 : 0.38,
     color: sel ? '#0A3550' : '#ffffff',
     weight: sel ? 2 : 0.5,
-    fillOpacity: sel ? 0.55 : 0.38,
+    stroke: true,
   };
 }
-const choroDeaths = new Map<string, number | null>();
-
-function buildChoropleth(fc: GeoJSON.FeatureCollection) {
-  // antimeridian fix — shift the negative-lng half of Russia/Fiji +360 so they don't smear a band
-  for (const f of fc.features) {
-    const nm = (f.properties as { name?: string })?.name;
-    if (nm === 'Russia' || nm === 'Fiji') {
-      const shift = (a: unknown): void => {
-        if (typeof (a as number[])[0] === 'number') {
-          const c = a as number[];
-          if (c[0] < -10) c[0] += 360;
-          return;
-        }
-        (a as unknown[]).forEach(shift);
-      };
-      shift((f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon).coordinates);
-    }
-    const p = f.properties as { name?: string; deaths?: number | null };
-    if (p?.name) choroDeaths.set(p.name, p.deaths ?? null);
-  }
-  healthLayer.clearLayers();
-  countryLayer = L.geoJSON(fc, {
-    style: (f) => cStyle((f!.properties as { name: string }).name, false),
-    onEachFeature: (f, layer) => {
-      const name = (f.properties as { name: string }).name;
-      layer.on('click', () => selectCountry(name, layer as L.Path));
-      layer.on('mouseover', function (this: L.Path) {
-        this.setStyle({ weight: 1.4, fillOpacity: 0.6 });
-        this.bringToFront();
-      });
-      layer.on('mouseout', function (this: L.Path) {
-        this.setStyle(cStyle(name, name === selName));
-      });
+async function buildChoropleth() {
+  (window as any).L = L; // leaflet.vectorgrid is an old UMD that attaches to the global L
+  await import('leaflet.vectorgrid');
+  const VG = (L as any).vectorGrid;
+  choroLayer = VG.protobuf(`${api.tileBase}/country_tiles/{z}/{x}/{y}`, {
+    rendererFactory: (L as any).svg.tile,
+    interactive: true,
+    maxZoom: 19,
+    getFeatureId: (f: any) => f.properties.name,
+    vectorTileLayerStyles: {
+      country_tiles: (props: any) => vgStyle(props.deaths, false),
     },
   });
-  healthLayer.addLayer(countryLayer);
+  choroLayer.on('click', (e: any) => selectCountry(e.layer.properties.name, e.layer.properties.deaths ?? null));
+  choroLayer.on('mouseover', (e: any) => {
+    const { name, deaths } = e.layer.properties;
+    if (name !== selName) choroLayer.setFeatureStyle(name, { ...vgStyle(deaths, false), fillOpacity: 0.6, weight: 1.4 });
+  });
+  choroLayer.on('mouseout', (e: any) => {
+    const name = e.layer.properties.name;
+    if (name !== selName) choroLayer.resetFeatureStyle(name);
+  });
+  healthLayer.addLayer(choroLayer);
 }
-function selectCountry(name: string, layer: L.Path) {
-  if (selLayer && selName) selLayer.setStyle(cStyle(selName, false));
-  selLayer = layer;
+function selectCountry(name: string, deaths: number | null) {
+  if (selName && choroLayer) choroLayer.resetFeatureStyle(selName);
   selName = name;
-  layer.setStyle(cStyle(name, true));
-  layer.bringToFront?.();
-  openCountry(name);
+  selDeaths = deaths;
+  choroLayer?.setFeatureStyle(name, vgStyle(deaths, true));
+  openCountry(name, deaths);
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ---- monitors / clusters ----
 function monMarker(m: Monitor) {
@@ -160,7 +150,47 @@ function popupHtml(m: Monitor) {
     `<div class="ms">${m.manufacturer} · ${typeLabel}<br>${m.country} · ${m.owner}</div>` +
     `<div class="mrow"><span style="width:11px;height:11px;border-radius:50%;background:${aqiColor(m.aqi)};display:inline-block"></span> AQI ${m.aqi} · PM2.5 ${m.pm25}</div>` +
     (m.status === 'offline' ? `<div class="mrow off">● ${t('Offline', 'ออฟไลน์')}</div>` : '') +
+    `<div class="mhist" data-id="${m.id}"></div>` +
     '</div>';
+}
+
+/** small PM2.5-over-time sparkline for a monitor's recent history */
+function pm25Spark(points: { ts: string; pm25: number; aqi: number }[]): string {
+  if (points.length < 2) {
+    return `<div style="font-size:10.5px;color:#8B988F;margin-top:6px">${t('PM2.5 history builds every 10 min', 'ประวัติ PM2.5 จะสะสมทุก 10 นาที')}</div>`;
+  }
+  const W = 190, H = 46, pl = 4, pr = 4, pt = 10, pb = 4;
+  const vals = points.map((p) => p.pm25);
+  const max = Math.max(...vals), min = Math.min(...vals), iw = W - pl - pr, ih = H - pt - pb;
+  const X = (i: number) => pl + (iw * i) / (points.length - 1);
+  const Y = (v: number) => pt + ih * (1 - (v - min) / Math.max(max - min, 1));
+  const last = points[points.length - 1];
+  const col = aqiColor(last.aqi);
+  let line = '';
+  points.forEach((p, i) => { line += (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p.pm25).toFixed(1) + ' '; });
+  return `<div style="margin-top:8px">` +
+    `<div style="font-size:10px;color:#8B988F;display:flex;justify-content:space-between">` +
+      `<span>${t('PM2.5 trend', 'แนวโน้ม PM2.5')} · ${points.length} ${t('pts', 'จุด')}</span><span>${last.pm25} µg/m³</span></div>` +
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">` +
+      `<path d="${line}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round"/>` +
+      `<circle cx="${X(points.length - 1).toFixed(1)}" cy="${Y(last.pm25).toFixed(1)}" r="2.4" fill="${col}"/>` +
+    `</svg></div>`;
+}
+async function onPopupOpen(e: L.PopupEvent): Promise<void> {
+  const root = e.popup.getElement();
+  const el = root?.querySelector('.mhist') as HTMLElement | null;
+  if (!el || el.dataset.loaded) return;
+  el.dataset.loaded = '1';
+  const id = el.getAttribute('data-id');
+  if (!id) return;
+  try {
+    const hist = await api.get<{ ts: string; pm25: number; aqi: number }[]>(
+      `/monitors/${encodeURIComponent(id)}/measurements`,
+    );
+    el.innerHTML = pm25Spark(hist.slice().reverse());
+  } catch {
+    el.innerHTML = '';
+  }
 }
 function passes(m: Monitor) {
   return filterType[m.type] && filterStatus[m.status] && filterMfg[m.manufacturer];
@@ -225,9 +255,9 @@ function sparkline(series: { year: number; deaths: number }[], color: string) {
 }
 
 // ---- info panel ----
-async function openCountry(name: string) {
+async function openCountry(name: string, deathsArg: number | null = null) {
   const rec = densityByCountry.get(name);
-  const deaths = rec?.deaths ?? choroDeaths.get(name) ?? null;
+  const deaths = rec?.deaths ?? deathsArg ?? null;
   const ms = rec?.monitors_total ?? 0;
   const online = rec?.monitors_online ?? 0;
   const per100k = rec?.monitors_per_100k ?? null;
@@ -327,9 +357,9 @@ async function loadSeries(name: string) {
 
 function closeInfo() {
   infoOpen.value = false;
-  if (selLayer && selName) selLayer.setStyle(cStyle(selName, false));
-  selLayer = null;
+  if (selName && choroLayer) choroLayer.resetFeatureStyle(selName);
   selName = null;
+  selDeaths = null;
 }
 
 // ---- layer toggles ----
@@ -413,6 +443,7 @@ onMounted(async () => {
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
     subdomains: 'abcd', maxZoom: 19, pane: 'labels',
   }).addTo(map);
+  map.on('popupopen', onPopupOpen);
 
   cluster = L.markerClusterGroup({
     maxClusterRadius: 48, showCoverageOnHover: false, chunkedLoading: true,
@@ -439,11 +470,10 @@ onMounted(async () => {
     if (saved === 'th' || saved === 'en') setLang(saved);
   } catch { /* ignore */ }
 
-  // load data from the API
-  const [monitors, density, choro, gstats] = await Promise.all([
+  // load data from the API (choropleth comes from Martin vector tiles, not GeoJSON)
+  const [monitors, density, gstats] = await Promise.all([
     api.get<Monitor[]>('/monitors'),
     api.get<CountryDensity[]>('/density'),
-    api.get<GeoJSON.FeatureCollection>('/density/choropleth'),
     api.get<GlobalStats>('/stats/global'),
   ]);
   MONITORS = monitors;
@@ -454,7 +484,7 @@ onMounted(async () => {
   manufacturers.value = [...new Set(MONITORS.map((m) => m.manufacturer))].sort();
   for (const mf of manufacturers.value) filterMfg[mf] = true;
 
-  buildChoropleth(choro);
+  await buildChoropleth();
   rebuildMonitors();
   updatePill();
   installTooltips();
@@ -466,7 +496,7 @@ onMounted(async () => {
 // re-render dynamic chrome on language change
 watch(lang, () => {
   updatePill();
-  if (infoOpen.value && selName) openCountry(selName);
+  if (infoOpen.value && selName) openCountry(selName, selDeaths);
   if (cluster) rebuildMonitors();
 });
 

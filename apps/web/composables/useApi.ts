@@ -1,6 +1,8 @@
 /** Base URL of the NestJS API and a small typed fetch helper. */
 export function useApi() {
-  const base = useRuntimeConfig().public.apiBase;
+  const cfg = useRuntimeConfig().public;
+  const base = cfg.apiBase;
+  const tileBase = cfg.tileBase;
 
   const get = <T>(path: string): Promise<T> => $fetch<T>(`${base}${path}`);
 
@@ -9,5 +11,5 @@ export function useApi() {
     return `${base}/export?${qs}`;
   };
 
-  return { base, get, exportUrl };
+  return { base, tileBase, get, exportUrl };
 }
