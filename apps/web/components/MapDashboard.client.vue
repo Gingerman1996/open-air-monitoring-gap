@@ -221,7 +221,7 @@ function updatePill() {
 function sparkline(series: { year: number; deaths: number }[], color: string) {
   const data = series.map((p) => ({ y: p.year, v: p.deaths }));
   const W = 276, H = 118, pl = 8, pr = 8, pt = 12, pb = 20;
-  const max = data[data.length - 1].v, iw = W - pl - pr, ih = H - pt - pb;
+  const max = Math.max(...data.map((p) => p.v)), iw = W - pl - pr, ih = H - pt - pb;
   const X = (i: number) => pl + (iw * i) / (data.length - 1);
   const Y = (v: number) => pt + ih * (1 - v / max);
   let line = '', area = 'M' + X(0) + ' ' + Y(data[0].v);
@@ -231,13 +231,13 @@ function sparkline(series: { year: number; deaths: number }[], color: string) {
     area += ' L' + x + ' ' + y;
   });
   area += ' L' + X(data.length - 1) + ' ' + (pt + ih) + ' L' + X(0) + ' ' + (pt + ih) + ' Z';
-  const ticks = [1990, 2005, 2023];
-  const xlab = ticks.map((yr) => {
-    const i = yr - 1990;
-    const anchor = yr === 1990 ? 'start' : yr === 2023 ? 'end' : 'middle';
-    return `<text x="${X(i).toFixed(1)}" y="${H - 5}" font-size="9" fill="#8B988F" text-anchor="${anchor}" font-family="IBM Plex Mono,monospace">${yr}</text>`;
+  const lastIdx = data.length - 1;
+  const tickIdx = [...new Set(lastIdx <= 1 ? [0, lastIdx] : [0, Math.round(lastIdx / 2), lastIdx])];
+  const xlab = tickIdx.map((i) => {
+    const anchor = i === 0 ? 'start' : i === lastIdx ? 'end' : 'middle';
+    return `<text x="${X(i).toFixed(1)}" y="${H - 5}" font-size="9" fill="#8B988F" text-anchor="${anchor}" font-family="IBM Plex Mono,monospace">${data[i].y}</text>`;
   }).join('');
-  const dot = `<circle cx="${X(data.length - 1).toFixed(1)}" cy="${Y(max).toFixed(1)}" r="3" fill="${color}"/>`;
+  const dot = `<circle cx="${X(lastIdx).toFixed(1)}" cy="${Y(data[lastIdx].v).toFixed(1)}" r="3" fill="${color}"/>`;
   const geo = { W, H, pl, pr, pt, ih, iw, max, color, data };
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" width="100%" style="display:block" data-geo='${JSON.stringify(geo)}'>` +
     `<path d="${area}" fill="${color}" opacity="0.12"/>` +
@@ -275,7 +275,8 @@ async function openCountry(name: string, deathsArg: number | null = null) {
   if (deaths != null) {
     const series = await loadSeries(name);
     if (series.length) {
-      body += `<div class="metric"><div class="ml">${t('Deaths trend · 1990–2023', 'แนวโน้มผู้เสียชีวิต · 1990–2023')}</div>${sparkline(series, deathColor(deaths))}</div>`;
+      const y0 = series[0].year, y1 = series[series.length - 1].year;
+      body += `<div class="metric"><div class="ml">${t(`Deaths trend · ${y0}–${y1}`, `แนวโน้มผู้เสียชีวิต · ${y0}–${y1}`)}</div>${sparkline(series, deathColor(deaths))}</div>`;
     }
   }
   body += '<div class="divider"></div>';
