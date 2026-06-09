@@ -457,7 +457,7 @@ onMounted(async () => {
       const w = n < 10 ? 36 : n < 50 ? 44 : n < 200 ? 52 : 60;
       return L.divIcon({
         className: 'pm-cluster',
-        html: `<div class="cl" style="width:${w}px;height:${w}px;background:${col};box-shadow:0 0 0 6px ${col}44,0 2px 7px rgba(20,32,27,.3)">${n}</div>`,
+        html: `<div class="cl" style="width:${w}px;height:${w}px;background:${col};box-shadow:0 0 0 6px ${col}44,0 2px 7px rgba(20,32,27,.3)" title="${n} ${t('sensors', 'เครื่อง')} · ${t('avg AQI', 'AQI เฉลี่ย')}">${avg}</div>`,
         iconSize: [w, w],
       });
     },
