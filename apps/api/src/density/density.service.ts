@@ -3,11 +3,11 @@ import { DbService } from '../db/db.service';
 import { CacheService } from '../cache/cache.service';
 
 const COUNTRY_STATS = `
-  SELECT ds.scope_name AS country, ds.population, ds.monitors_total, ds.monitors_online,
+  SELECT ds.scope_name AS country, ds.population::float AS population, ds.monitors_total, ds.monitors_online,
          ds.reference, ds.low_cost, ds.monitors_per_100k::float AS monitors_per_100k,
          ds.deaths_per_100k::float AS deaths_per_100k, ds.avg_pm25::float AS avg_pm25,
          ds.gap_ratio::float AS gap_ratio, ds.gap_level,
-         hi.deaths
+         hi.deaths::float AS deaths
   FROM density_stats ds
   LEFT JOIN LATERAL (
     SELECT deaths FROM health_impacts h
@@ -69,9 +69,9 @@ export class DensityService {
         gap_ratio: number | null;
         gap_level: number | null;
       }>(
-        `SELECT c.name, c.population,
+        `SELECT c.name, c.population::float AS population,
                 ST_AsGeoJSON(c.geom)::json AS geometry,
-                hi.deaths, hi.deaths_per_100k::float AS deaths_per_100k,
+                hi.deaths::float AS deaths, hi.deaths_per_100k::float AS deaths_per_100k,
                 ds.monitors_total, ds.gap_ratio::float AS gap_ratio, ds.gap_level
          FROM countries c
          LEFT JOIN LATERAL (

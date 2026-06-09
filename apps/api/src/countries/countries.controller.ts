@@ -11,8 +11,8 @@ export class CountriesController {
   @ApiOkResponse({ description: 'Countries with latest deaths + population.' })
   findAll() {
     return this.db.query(
-      `SELECT c.name, c.name_th, c.population,
-              hi.deaths, hi.deaths_per_100k::float AS deaths_per_100k
+      `SELECT c.name, c.name_th, c.population::float AS population,
+              hi.deaths::float AS deaths, hi.deaths_per_100k::float AS deaths_per_100k
        FROM countries c
        LEFT JOIN LATERAL (
          SELECT deaths, deaths_per_100k FROM health_impacts h

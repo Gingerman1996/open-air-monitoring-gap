@@ -42,8 +42,10 @@ export class ExportController {
       .send(csv);
   }
 
-  private list(v?: string) {
-    return v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+  // undefined = group absent (no filter); [] = group present but empty (user deselected all → match none)
+  private parse(v?: string): string[] | undefined {
+    if (v === undefined) return undefined;
+    return v.split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   private async build(
@@ -55,10 +57,15 @@ export class ExportController {
         'monitor_id', 'city', 'country', 'manufacturer', 'type', 'owner',
         'lat', 'lng', 'status', 'pm25', 'aqi',
       ];
+      const type = this.parse(f.type);
+      const status = this.parse(f.status);
+      const manufacturer = this.parse(f.manufacturer);
+      // mirror the map: a fully-deselected group means zero monitors, not "all monitors"
+      if ([type, status, manufacturer].some((g) => Array.isArray(g) && g.length === 0)) {
+        return [head];
+      }
       const rows = (await this.monitors.findAll({
-        type: this.list(f.type),
-        status: this.list(f.status),
-        manufacturer: this.list(f.manufacturer),
+        type, status, manufacturer,
       })) as Array<Record<string, Cell>>;
       return [head, ...rows.map((m) => [
         m.id, m.city, m.country, m.manufacturer, m.type, m.owner,

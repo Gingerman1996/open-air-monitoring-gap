@@ -1,3 +1,6 @@
+// API base the browser uses (relative → same-origin, no CORS); proxied to the API by Nitro.
+const apiProxyTarget = process.env.API_PROXY_TARGET ?? 'http://localhost:3001';
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
   devtools: { enabled: true },
@@ -18,9 +21,13 @@ export default defineNuxtConfig({
       ],
     },
   },
+  // browser calls same-origin /api/v1; the Nitro server proxies it to the API container
+  routeRules: {
+    '/api/**': { proxy: `${apiProxyTarget}/api/**` },
+  },
   runtimeConfig: {
     public: {
-      apiBase: process.env.NUXT_PUBLIC_API_BASE ?? 'http://localhost:3001/api/v1',
+      apiBase: process.env.NUXT_PUBLIC_API_BASE ?? '/api/v1',
     },
   },
 });
