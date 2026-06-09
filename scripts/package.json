@@ -1,0 +1,9 @@
+{
+  "name": "@openair/scripts",
+  "private": true,
+  "type": "module",
+  "description": "Chrome-debug loop helper (Playwright over system Chrome)",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}
