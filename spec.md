@@ -132,9 +132,9 @@ Responses cache-keyed in Redis (TTL ~5 min) for the aggregate endpoints.
 ## 8. Scaling roadmap (post-hackathon)
 
 - **Phase 1 (MVP):** single API, Leaflet `L.geoJSON` choropleth, **live AirGradient ingest on
-  startup** + seeded reference deaths/population. ← *we are here*
-- **Phase 2 (Pilot):** scheduled ingestion workers (BullMQ) refreshing on a cadence + history;
-  vector tiles for boundaries (Martin / pg_tileserv) + MapLibre; TimescaleDB for `measurements`.
+  startup + a BullMQ worker refreshing every 10 min**, seeded reference deaths/population. ← *we are here*
+- **Phase 2 (Pilot):** measurement history + per-source cadences; vector tiles for boundaries
+  (Martin / pg_tileserv) + MapLibre; TimescaleDB for `measurements`.
 - **Phase 3 (Global):** Kubernetes, read replicas, CDN-fronted tiles, regional API.
 
 ## 9. Success criteria (definition of done)

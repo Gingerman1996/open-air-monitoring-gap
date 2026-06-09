@@ -47,6 +47,9 @@ npm --prefix apps/api run seed
 # pull LIVE monitors from the AirGradient Map API (replaces the sample monitors)
 npm --prefix apps/api run ingest
 
+# in the container, ingest also runs on boot (INGEST_ON_START) and on a BullMQ
+# schedule every INGEST_INTERVAL_MS (default 600000 = 10 min, gated by INGEST_SCHEDULE)
+
 # dev servers
 npm --prefix apps/api run start:dev     # http://localhost:3001/api/v1  (docs at /api/v1/docs)
 npm --prefix apps/web run dev           # http://localhost:3000

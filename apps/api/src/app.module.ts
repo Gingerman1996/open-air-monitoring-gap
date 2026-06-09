@@ -8,6 +8,7 @@ import { DensityModule } from './density/density.module';
 import { HealthImpactsModule } from './health-impacts/health-impacts.module';
 import { StatsModule } from './stats/stats.module';
 import { ExportModule } from './export/export.module';
+import { IngestScheduler } from './ingest/ingest.scheduler';
 
 @Module({
   imports: [
@@ -21,5 +22,6 @@ import { ExportModule } from './export/export.module';
     StatsModule,
     ExportModule,
   ],
+  providers: [IngestScheduler],
 })
 export class AppModule {}

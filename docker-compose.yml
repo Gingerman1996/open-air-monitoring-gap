@@ -36,6 +36,8 @@ services:
       PORT: "3001"
       SEED_ON_START: "true"
       INGEST_ON_START: "true"
+      INGEST_SCHEDULE: "true"
+      INGEST_INTERVAL_MS: "${INGEST_INTERVAL_MS:-600000}"
       AIRGRADIENT_MAP_API: "https://map-data.airgradient.com/map/api/v1"
       CORS_ORIGIN: "*"
     ports:

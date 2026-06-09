@@ -46,10 +46,11 @@ Monitors — **live** from the [AirGradient Map API](https://map-data.airgradien
 Deaths — [State of Global Air](https://www.stateofglobalair.org/data) (GBD/IHME) ·
 Population — [UN WPP](https://population.un.org/wpp/) + World Bank.
 
-Monitors are ingested live on startup (`npm --prefix apps/api run ingest`, or `INGEST_ON_START=true`)
-and assigned to countries via PostGIS point-in-polygon; the monitoring gap is then computed from
-**real monitor density × reference death burden**. Deaths/population are seeded reference data
-(annual GBD/UN datasets — no live feed). If the API is unreachable, the seeded sample is served instead.
+Monitors are ingested live on startup and **auto-refreshed every 10 minutes by a BullMQ worker**
+(`INGEST_ON_START` / `INGEST_SCHEDULE`), assigned to countries via PostGIS point-in-polygon; the
+monitoring gap is then computed from **real monitor density × reference death burden**.
+Deaths/population are seeded reference data (annual GBD/UN datasets — no live feed). If the API is
+unreachable, the seeded sample is served instead.
 
 ## License
 
