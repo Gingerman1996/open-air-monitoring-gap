@@ -8,7 +8,7 @@ A full-stack, scalable web tool: an interactive world map shades each country by
 deaths and plots every public air-quality monitor, then shows — per country — how big the
 monitoring gap is, how many monitors it would take to close it, and what that costs.
 
-![brand](apps/web/public/logo-colored.png)
+![Open Air Monitoring Gap dashboard](docs/dashboard.png)
 
 ## Stack
 

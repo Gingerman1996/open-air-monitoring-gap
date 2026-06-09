@@ -17,7 +17,7 @@ when implementing a UI detail.
 
 | Layer | Tech |
 |---|---|
-| Frontend | Nuxt 3 (SSR) · Leaflet + leaflet.markercluster · Pinia (filter state) |
+| Frontend | Nuxt 3 · Leaflet + leaflet.markercluster · Nuxt `useState` for language (filter state is component-local) |
 | Backend | NestJS · `pg` (node-postgres, raw parameterized SQL) · ioredis |
 | Database | PostgreSQL + PostGIS |
 | Cache | Redis |
