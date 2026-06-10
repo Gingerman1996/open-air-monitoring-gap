@@ -123,3 +123,15 @@ CREATE INDEX IF NOT EXISTS density_scope_idx ON density_stats (scope_type);
 -- The Martin/MVT tile pipeline was replaced by the L.geoJSON choropleth
 -- (GET /density/choropleth); drop its function source from existing volumes.
 DROP FUNCTION IF EXISTS public.country_tiles(integer, integer, integer);
+
+-- ---------------------------------------------------------------------------
+-- Pledged donations (demo — no real payment). Drives the "fully equip" progress
+-- bar per country and the dashboard's top-supporters leaderboard.
+CREATE TABLE IF NOT EXISTS donations (
+  id          SERIAL PRIMARY KEY,
+  donor_name  TEXT NOT NULL,
+  country     TEXT,                       -- world-atlas country name; NULL = general fund
+  amount      NUMERIC NOT NULL CHECK (amount > 0),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS donations_country_idx ON donations (country);

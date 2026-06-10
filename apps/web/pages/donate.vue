@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const { lang, setLang, t } = useLang();
+const api = useApi();
 const route = useRoute();
 
 const country = computed(() => {
@@ -17,7 +18,10 @@ const MONITOR_PRICE = 250; // avg low-cost sensor, mirrors the dashboard maths
 const TIERS = [25, 250, 2500];
 const amount = ref<number>(250);
 const custom = ref('');
+const name = ref('');
 const donated = ref(false);
+const submitting = ref(false);
+const error = ref('');
 
 const chosen = computed(() => {
   const c = asNum(custom.value);
@@ -29,7 +33,22 @@ const fmtMonitors = (n: number) =>
   n >= 1 ? `${Math.floor(n).toLocaleString()} ${t('monitor(s)', 'เครื่อง')}` : `${Math.round(n * 100)}% ${t('of a monitor', 'ของหนึ่งเครื่อง')}`;
 
 const pick = (v: number) => { amount.value = v; custom.value = ''; };
-const donate = () => { donated.value = true; };
+
+const donate = async () => {
+  error.value = '';
+  const donorName = name.value.trim();
+  if (!donorName) { error.value = t('Please enter your name.', 'กรุณากรอกชื่อของคุณ'); return; }
+  if (!(chosen.value > 0)) { error.value = t('Enter a valid amount.', 'กรอกจำนวนเงินที่ถูกต้อง'); return; }
+  submitting.value = true;
+  try {
+    await api.post('/donations', { donorName, country: country.value || null, amount: chosen.value });
+    donated.value = true;
+  } catch {
+    error.value = t('Could not record your donation — please try again.', 'บันทึกการบริจาคไม่สำเร็จ — กรุณาลองใหม่');
+  } finally {
+    submitting.value = false;
+  }
+};
 
 onMounted(() => {
   const saved = localStorage.getItem('demo-lang');
@@ -89,22 +108,28 @@ useHead({ title: 'Donate — Open Air Monitoring Gap' });
           <input v-model="custom" type="number" min="1" :placeholder="t('e.g. 1000', 'เช่น 1000')" />
         </label>
 
+        <label class="dn-custom">
+          <span>{{ t('Your name (shown on the leaderboard)', 'ชื่อของคุณ (แสดงบนกระดานผู้สนับสนุน)') }}</span>
+          <input v-model="name" type="text" maxlength="80" :placeholder="t('e.g. Tanapat', 'เช่น ธนพัฒน์')" @keyup.enter="donate" />
+        </label>
+
         <div class="dn-impact">
           {{ t('Your donation funds', 'เงินบริจาคของคุณสนับสนุน') }} <b>{{ fmtMonitors(monitorsFunded) }}</b>{{ country ? ` ${t('in', 'ใน')} ${country}` : '' }}
           <span class="dn-price">({{ t('avg low-cost sensor', 'เซนเซอร์ราคาประหยัดเฉลี่ย') }} ≈ {{ fmtMoney(MONITOR_PRICE) }})</span>
         </div>
 
-        <button class="dn-go" @click="donate">
-          {{ t('Donate', 'บริจาค') }} {{ fmtMoney(chosen) }}
+        <p v-if="error" class="dn-err">{{ error }}</p>
+        <button class="dn-go" :disabled="submitting" @click="donate">
+          {{ submitting ? t('Recording…', 'กำลังบันทึก…') : `${t('Donate', 'บริจาค')} ${fmtMoney(chosen)}` }}
         </button>
       </div>
 
       <div class="dn-card dn-thanks" v-else>
         <div class="dn-check">✓</div>
-        <h1 class="dn-title">{{ t('Thank you!', 'ขอบคุณครับ/ค่ะ!') }}</h1>
+        <h1 class="dn-title">{{ t(`Thank you, ${name.trim()}!`, `ขอบคุณ ${name.trim()}!`) }}</h1>
         <p class="dn-sub">
-          {{ t(`Your sample donation of ${fmtMoney(chosen)} would fund ${fmtMonitors(monitorsFunded)}${country ? ' in ' + country : ''}.`,
-               `เงินบริจาคตัวอย่าง ${fmtMoney(chosen)} ของคุณจะสนับสนุน ${fmtMonitors(monitorsFunded)}${country ? 'ใน' + country : ''}`) }}
+          {{ t(`Your sample donation of ${fmtMoney(chosen)} would fund ${fmtMonitors(monitorsFunded)}${country ? ' in ' + country : ''}. You're now on the supporters board.`,
+               `เงินบริจาคตัวอย่าง ${fmtMoney(chosen)} ของคุณจะสนับสนุน ${fmtMonitors(monitorsFunded)}${country ? 'ใน' + country : ''} · ชื่อของคุณขึ้นกระดานผู้สนับสนุนแล้ว`) }}
         </p>
         <p class="dn-demo-note">{{ t('This is a demo — no payment was made.', 'นี่คือหน้าตัวอย่าง — ไม่มีการชำระเงินเกิดขึ้น') }}</p>
         <NuxtLink to="/" class="dn-go dn-go-link">{{ t('Back to the map', 'กลับไปที่แผนที่') }}</NuxtLink>
@@ -143,8 +168,10 @@ useHead({ title: 'Donate — Open Air Monitoring Gap' });
 .dn-impact { font-size: 13px; color: var(--ink-soft); background: var(--teal-tint); border-radius: 10px; padding: 10px 12px; margin-bottom: 18px; line-height: 1.5; }
 .dn-impact b { color: var(--teal-deep); }
 .dn-price { color: var(--muted); font-size: 11.5px; margin-left: 4px; }
+.dn-err { color: var(--aqi-bad); font-size: 12.5px; margin: 0 0 10px; }
 .dn-go { display: block; width: 100%; padding: 13px; border: none; border-radius: 10px; background: var(--brand); color: #fff; font-family: var(--display); font-weight: 600; font-size: 16px; cursor: pointer; text-align: center; text-decoration: none; }
 .dn-go:hover { background: var(--brand-deep); }
+.dn-go:disabled { opacity: .6; cursor: progress; }
 .dn-thanks { text-align: center; }
 .dn-check { width: 56px; height: 56px; margin: 6px auto 14px; border-radius: 50%; background: var(--aqi-good); color: #fff; font-size: 30px; display: flex; align-items: center; justify-content: center; }
 .dn-demo-note { font-family: var(--mono); font-size: 11.5px; color: var(--faint); margin: 0 0 18px; }
