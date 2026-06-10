@@ -37,6 +37,8 @@ const setUnit = (u: 'aqi' | 'pm25') => {
   try { localStorage.setItem('demo-unit', u); } catch { /* storage unavailable */ }
 };
 const visCount = ref(0);
+const donorsOpen = ref(false);
+const topDonors = ref<{ donor_name: string; total: number; gifts: number }[]>([]);
 const filterType = reactive<Record<string, boolean>>({ low_cost: true, reference: true });
 const filterStatus = reactive<Record<string, boolean>>({ online: true, offline: true });
 const filterMfg = reactive<Record<string, boolean>>({});
@@ -46,6 +48,7 @@ const story = reactive({ active: false, step: 0, title: '', body: '', label: '' 
 // ---- plain (non-reactive) data + leaflet handles ----
 let MONITORS: Monitor[] = [];
 const densityByCountry = new Map<string, CountryDensity>();
+const donatedByCountry = new Map<string, number>(); // country → total pledged (demo donations)
 let stats: GlobalStats | null = null;
 let map: L.Map;
 let cluster: L.MarkerClusterGroup;
@@ -247,6 +250,21 @@ function rebuildMonitors() {
   updatePill();
 }
 
+// ---- donations (demo) ----
+async function loadDonations() {
+  try {
+    const [top, raised] = await Promise.all([
+      api.get<{ donor_name: string; total: number; gifts: number }[]>('/donations/top?limit=8'),
+      api.get<{ country: string; raised: number }[]>('/donations/raised'),
+    ]);
+    topDonors.value = top;
+    donatedByCountry.clear();
+    for (const r of raised) donatedByCountry.set(r.country, r.raised);
+  } catch {
+    /* donations are a non-critical overlay — leave the map fully usable if they fail */
+  }
+}
+
 // ---- count pill ----
 const pill = ref('');
 function updatePill() {
@@ -370,8 +388,11 @@ function investBlock(country: string, deathsPer100k: number | null, pop: number 
   if (gap != null && gap < t0) return `<div class="gapfix ok">${t('✓ Already in the good zone (Lv 1)', '✓ อยู่ในโซนที่ดีแล้ว (Lv 1)')}</div>`;
   const need = monitorsNeeded(deathsPer100k, pop, ms, t0);
   if (need <= 0) return '';
-  const raised = ms * PRICE.low_cost, goal = (ms + need) * PRICE.low_cost, stillNeed = need * PRICE.low_cost;
-  const pct = goal ? Math.round((raised / goal) * 100) : 0;
+  const goal = (ms + need) * PRICE.low_cost;
+  const donated = donatedByCountry.get(country) ?? 0; // demo donations pledged for this country
+  const raised = Math.min(ms * PRICE.low_cost + donated, goal);
+  const stillNeed = Math.max(goal - raised, 0);
+  const pct = goal ? Math.min(Math.round((raised / goal) * 100), 100) : 0;
   return '<div class="gapfix">' +
     `<div class="gf-h">${t('To reach the good zone (Lv 1) — add', 'เพื่อเข้าโซนที่ดี (Lv 1) — ต้องเพิ่ม')}${qmark(t('Monitors needed so the gap drops into Level 1 (the lowest quintile). Cost = monitors needed × average sensor price. Avg prices: low-cost ~$250 (AirGradient / PurpleAir store listings), reference ~$25,000 (regulatory FEM/BAM units, e.g. Met One BAM-1020). Indicative, configurable.', 'จำนวนเครื่องที่ต้องเพิ่มเพื่อให้ gap ลงมาอยู่ระดับ 1 (quintile ต่ำสุด) · ค่าใช้จ่าย = จำนวนเครื่อง × ราคาเฉลี่ย · ราคาเฉลี่ย: ราคาประหยัด ~$250 (จากราคาขาย AirGradient / PurpleAir), อ้างอิง ~$25,000 (เครื่องระดับมาตรฐาน FEM/BAM เช่น Met One BAM-1020) — เป็นค่าประมาณ ปรับได้'))}</div>` +
     `<div class="gf-need">+${need.toLocaleString()} <small>${t('monitors', 'เครื่อง')}</small></div>` +
@@ -381,6 +402,7 @@ function investBlock(country: string, deathsPer100k: number | null, pop: number 
       `<div class="gf-dh">${t('Donation to fully equip (low-cost)', 'เงินบริจาคเพื่อจัดให้ครบ (ราคาประหยัด)')}</div>` +
       `<div class="donatebar"><i style="width:${pct}%"></i></div>` +
       `<div class="gf-drow"><span>${t('Raised', 'ระดมได้')} ${fmtMoney(raised)} / ${fmtMoney(goal)}</span><b>${t('need', 'ต้องการอีก')} ${fmtMoney(stillNeed)}</b></div>` +
+      (donated > 0 ? `<div class="gf-donated">${t('incl.', 'รวม')} ${fmtMoney(donated)} ${t('from donors', 'จากผู้บริจาค')} ♥</div>` : '') +
       `<a class="gf-btn" href="/donate?country=${encodeURIComponent(country)}&need=${need}&cost=${stillNeed}">${t('Donate to close this gap', 'ร่วมบริจาคเพื่อปิดช่องว่างนี้')} →</a>` +
     '</div></div>';
 }
@@ -535,6 +557,7 @@ onMounted(async () => {
     MONITORS = monitors;
     for (const d of density) densityByCountry.set(d.country, d);
     stats = gstats;
+    await loadDonations();
 
     // manufacturers + filters
     manufacturers.value = [...new Set(MONITORS.map((m) => m.manufacturer))].sort();
@@ -690,7 +713,7 @@ function installSparkHover() {
       <span class="ic">▶</span><span class="lbl">{{ t('Story mode', 'โหมดเล่าเรื่อง') }}</span>
     </button>
     <div class="exportwrap">
-      <button class="btn solid" @click.stop="exportOpen = !exportOpen; sourcesOpen = false">
+      <button class="btn solid" @click.stop="exportOpen = !exportOpen; sourcesOpen = false; donorsOpen = false">
         <span class="ic">↓</span><span class="lbl">{{ t('Export CSV', 'ส่งออก CSV') }}</span>
       </button>
       <div class="menu" :class="{ show: exportOpen }" @click.stop>
@@ -714,7 +737,7 @@ function installSparkHover() {
       </div>
     </div>
     <div class="exportwrap">
-      <button class="btn" @click.stop="sourcesOpen = !sourcesOpen; exportOpen = false">
+      <button class="btn" @click.stop="sourcesOpen = !sourcesOpen; exportOpen = false; donorsOpen = false">
         <span class="ic">⊙</span><span class="lbl">{{ t('Sources', 'แหล่งข้อมูล') }}</span>
       </button>
       <div class="menu" :class="{ show: sourcesOpen }" @click.stop>
@@ -731,6 +754,23 @@ function installSparkHover() {
           <div class="mc" style="background:var(--aqi-good)" />
           <div><div class="mt">{{ t('Monitors · AirGradient API', 'เครื่องตรวจวัด · AirGradient API') }}</div><div class="md">map data ↗</div></div>
         </a>
+      </div>
+    </div>
+    <div class="exportwrap">
+      <button class="btn" @click.stop="donorsOpen = !donorsOpen; exportOpen = false; sourcesOpen = false">
+        <span class="ic">♥</span><span class="lbl">{{ t('Supporters', 'ผู้สนับสนุน') }}</span>
+      </button>
+      <div class="menu donors" :class="{ show: donorsOpen }" @click.stop>
+        <div class="mh">{{ t('Top supporters', 'ผู้สนับสนุนสูงสุด') }}</div>
+        <div v-if="topDonors.length" class="dlist">
+          <div class="drow" v-for="(d, i) in topDonors" :key="d.donor_name + i">
+            <span class="drank" :class="{ top: i === 0 }">{{ i + 1 }}</span>
+            <span class="dname">{{ d.donor_name }}</span>
+            <span class="damt">${{ Math.round(d.total).toLocaleString() }}</span>
+          </div>
+        </div>
+        <div v-else class="dempty">{{ t('No donations yet — be the first.', 'ยังไม่มีการบริจาค — เป็นคนแรก') }}</div>
+        <NuxtLink class="gf-btn ddonate" to="/donate">{{ t('Donate', 'บริจาค') }} →</NuxtLink>
       </div>
     </div>
     <div class="lang">

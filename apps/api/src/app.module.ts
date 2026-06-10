@@ -8,6 +8,7 @@ import { DensityModule } from './density/density.module';
 import { HealthImpactsModule } from './health-impacts/health-impacts.module';
 import { StatsModule } from './stats/stats.module';
 import { ExportModule } from './export/export.module';
+import { DonationsModule } from './donations/donations.module';
 import { IngestScheduler } from './ingest/ingest.scheduler';
 
 @Module({
@@ -21,6 +22,7 @@ import { IngestScheduler } from './ingest/ingest.scheduler';
     HealthImpactsModule,
     StatsModule,
     ExportModule,
+    DonationsModule,
   ],
   providers: [IngestScheduler],
 })

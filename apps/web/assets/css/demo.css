@@ -190,6 +190,19 @@ body{font-family:var(--sans);color:var(--ink);background:var(--paper);-webkit-fo
 .mi.star{background:var(--teal-tint);}
 .mi.star:hover{background:#d8ece5;}
 .mi.star .mt{color:var(--teal-deep);}
+
+/* supporters leaderboard menu */
+.menu.donors{width:260px;}
+.dlist{max-height:280px;overflow-y:auto;}
+.drow{display:flex;align-items:center;gap:10px;padding:8px 15px;border-bottom:1px solid var(--line-soft);font-size:13px;}
+.drow:last-child{border-bottom:none;}
+.drank{flex:none;width:20px;height:20px;border-radius:50%;background:var(--paper-2);color:var(--muted);font-family:var(--mono);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;}
+.drank.top{background:var(--brand);color:#fff;}
+.dname{flex:1;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.damt{font-family:var(--mono);font-weight:600;color:var(--teal-deep);}
+.dempty{padding:18px 15px;font-size:12.5px;color:var(--faint);text-align:center;}
+.gf-btn.ddonate{margin:11px 15px 14px;}
+.gapfix .gf-donated{margin-top:6px;font-family:var(--mono);font-size:11px;color:var(--brand-deep);}
 a.mi{text-decoration:none;color:inherit;}
 
 /* story mode */

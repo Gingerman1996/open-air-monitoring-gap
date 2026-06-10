@@ -5,10 +5,13 @@ export function useApi() {
 
   const get = <T>(path: string): Promise<T> => $fetch<T>(`${base}${path}`);
 
+  const post = <T>(path: string, body: unknown): Promise<T> =>
+    $fetch<T>(`${base}${path}`, { method: 'POST', body });
+
   const exportUrl = (dataset: string, query: Record<string, string> = {}): string => {
     const qs = new URLSearchParams({ dataset, ...query }).toString();
     return `${base}/export?${qs}`;
   };
 
-  return { base, get, exportUrl };
+  return { base, get, post, exportUrl };
 }
