@@ -20,6 +20,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Pool, PoolClient } from 'pg';
+import { backoffMs, shouldAbort } from '../common/metrics';
 
 const WB_BASE = process.env.WORLD_BANK_API ?? 'https://api.worldbank.org/v2';
 const GBD_BASE = process.env.SOGA_API ?? 'https://data3.zevross.com/hei/globalburden-2025/v1';
@@ -59,12 +60,12 @@ async function fetchJson(url: string, tries = 5): Promise<unknown> {
       res = await fetch(url);
     } catch (err) {
       if (attempt >= tries - 1) throw new Error(`${url} → ${(err as Error).message}`);
-      await sleep(300 * 2 ** attempt);
+      await sleep(backoffMs(attempt));
       continue;
     }
     if (res.status === 503 || res.status === 429) {
       if (attempt >= tries - 1) throw new Error(`${url} → HTTP ${res.status}`);
-      await sleep(300 * 2 ** attempt);
+      await sleep(backoffMs(attempt));
       continue;
     }
     if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
@@ -160,7 +161,7 @@ async function fetchGbd(log: (m: string) => void): Promise<CountrySeries[]> {
     await sleep(3000);
     failed = await pass(failed, 1);
   }
-  if (failed.length > iso3s.length * MAX_FAIL_FRACTION) {
+  if (shouldAbort(failed.length, iso3s.length, MAX_FAIL_FRACTION)) {
     throw new Error(`${failed.length}/${iso3s.length} countries failed — refusing to replace with a partial`);
   }
   if (failed.length) log(`WARN ${failed.length}/${iso3s.length} countries omitted this run: ${failed.join(',')}`);

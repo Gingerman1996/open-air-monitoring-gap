@@ -38,7 +38,7 @@ export class ExportController {
     res
       .status(200)
       .setHeader('Content-Type', 'text/csv; charset=utf-8')
-      .setHeader('Content-Disposition', `attachment; filename="aq-${dataset}_2026.csv"`)
+      .setHeader('Content-Disposition', `attachment; filename="aq-${dataset}.csv"`)
       .send(csv);
   }
 
@@ -53,8 +53,10 @@ export class ExportController {
     f: { type?: string; status?: string; manufacturer?: string },
   ): Promise<Cell[][]> {
     if (dataset === 'monitors') {
+      // no `city` column: monitors aren't assigned to a city (no per-monitor city mapping), so it
+      // would always be blank. country is assigned by PostGIS point-in-polygon and is real.
       const head = [
-        'monitor_id', 'city', 'country', 'manufacturer', 'type', 'owner',
+        'monitor_id', 'country', 'manufacturer', 'type', 'owner',
         'lat', 'lng', 'status', 'pm25', 'aqi',
       ];
       const type = this.parse(f.type);
@@ -68,7 +70,7 @@ export class ExportController {
         type, status, manufacturer,
       })) as Array<Record<string, Cell>>;
       return [head, ...rows.map((m) => [
-        m.id, m.city, m.country, m.manufacturer, m.type, m.owner,
+        m.id, m.country, m.manufacturer, m.type, m.owner,
         m.lat, m.lng, m.status, m.pm25, m.aqi,
       ])];
     }
@@ -97,16 +99,18 @@ export class ExportController {
       );
       return [head, ...rows.map((c) => head.map((k) => c[k] ?? null))];
     }
-    // health
+    // health — city deaths estimated from the city population × its country's latest PM2.5 death
+    // rate (per-city GBD rates don't exist); `year` is that GBD vintage, not the download year.
     const head = ['city', 'country', 'year', 'pollutant', 'metric', 'value', 'rate_per_100k'];
     const rows = await this.db.query<Record<string, Cell>>(
       `SELECT name AS city, country_name AS country,
+              (SELECT max(year) FROM health_impacts WHERE pollutant='pm25') AS year,
               ROUND(deaths_per_100k * population / 100000)::bigint AS value,
               deaths_per_100k
        FROM urban_centers ORDER BY name`,
     );
     return [head, ...rows.map((c) => [
-      c.city, c.country, 2026, 'pm25', 'deaths', c.value, c.deaths_per_100k,
+      c.city, c.country, c.year, 'pm25', 'deaths', c.value, c.deaths_per_100k,
     ])];
   }
 }

@@ -28,6 +28,7 @@ const infoHtml = ref('');
 const filtersOpen = ref(true);
 const exportOpen = ref(false);
 const sourcesOpen = ref(false);
+const loadError = ref(false);
 const monOn = ref(true);
 const healOn = ref(true);
 const visCount = ref(0);
@@ -325,9 +326,9 @@ function gapBlock(lvl: number | null, gap: number | null) {
 function investBlock(deathsPer100k: number | null, pop: number | null, ms: number) {
   const t0 = stats?.gap_threshold_lv1;
   if (deathsPer100k == null || !pop || !t0) return '';
-  const gap = ms > 0 ? deathsPer100k / Math.max(ms / (pop / 100000), 0.001) : null;
+  const gap = gapRatio(deathsPer100k, pop, ms);
   if (gap != null && gap < t0) return `<div class="gapfix ok">${t('✓ Already in the good zone (Lv 1)', '✓ อยู่ในโซนที่ดีแล้ว (Lv 1)')}</div>`;
-  const need = Math.max(0, Math.ceil((deathsPer100k / t0) * pop / 100000) - ms);
+  const need = monitorsNeeded(deathsPer100k, pop, ms, t0);
   if (need <= 0) return '';
   const raised = ms * PRICE.low_cost, goal = (ms + need) * PRICE.low_cost, stillNeed = need * PRICE.low_cost;
   const pct = goal ? Math.round((raised / goal) * 100) : 0;
@@ -433,7 +434,18 @@ function exitStory() {
 
 // ---- mount ----
 onMounted(async () => {
-  map = L.map(mapEl.value!, { zoomControl: false, worldCopyJump: true, minZoom: 2 }).setView([26, 30], 3);
+  // Clamp the view to the inhabited latitudes that actually carry data. Below ~-58° there are no
+  // real monitors (the only points there are upstream lat/lng-swapped sensors) and Antarctica's
+  // polygon reaches past the Web-Mercator limit (-85.06°) — Leaflet.VectorGrid can't fill that
+  // bottom-tile polygon, so it shows as a blank white block. Bounding the view hides both that
+  // un-renderable region and the empty sub-Mercator void, north and south.
+  map = L.map(mapEl.value!, {
+    zoomControl: false,
+    worldCopyJump: true,
+    minZoom: 2,
+    maxBounds: [[-58, -180], [84, 180]],
+    maxBoundsViscosity: 1.0,
+  }).setView([26, 30], 3);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19,
@@ -471,25 +483,32 @@ onMounted(async () => {
     if (saved === 'th' || saved === 'en') setLang(saved);
   } catch { /* ignore */ }
 
-  // load data from the API (choropleth comes from Martin vector tiles, not GeoJSON)
-  const [monitors, density, gstats] = await Promise.all([
-    api.get<Monitor[]>('/monitors'),
-    api.get<CountryDensity[]>('/density'),
-    api.get<GlobalStats>('/stats/global'),
-  ]);
-  MONITORS = monitors;
-  for (const d of density) densityByCountry.set(d.country, d);
-  stats = gstats;
+  // load data from the API (choropleth comes from Martin vector tiles, not GeoJSON). The basemap
+  // is already up; if the API is unreachable, surface it and leave the map usable rather than
+  // throwing an unhandled rejection.
+  try {
+    const [monitors, density, gstats] = await Promise.all([
+      api.get<Monitor[]>('/monitors'),
+      api.get<CountryDensity[]>('/density'),
+      api.get<GlobalStats>('/stats/global'),
+    ]);
+    MONITORS = monitors;
+    for (const d of density) densityByCountry.set(d.country, d);
+    stats = gstats;
 
-  // manufacturers + filters
-  manufacturers.value = [...new Set(MONITORS.map((m) => m.manufacturer))].sort();
-  for (const mf of manufacturers.value) filterMfg[mf] = true;
+    // manufacturers + filters
+    manufacturers.value = [...new Set(MONITORS.map((m) => m.manufacturer))].sort();
+    for (const mf of manufacturers.value) filterMfg[mf] = true;
 
-  await buildChoropleth();
-  rebuildMonitors();
-  updatePill();
-  installTooltips();
-  installSparkHover();
+    await buildChoropleth();
+    rebuildMonitors();
+    updatePill();
+    installTooltips();
+    installSparkHover();
+  } catch (err) {
+    console.error('[dashboard] initial data load failed:', err);
+    loadError.value = true;
+  }
 
   setTimeout(() => { const el = document.getElementById('toast'); if (el) el.style.display = 'none'; }, 6000);
 });
@@ -677,9 +696,14 @@ function installSparkHover() {
   <div class="body">
     <div id="map" ref="mapEl" />
 
-    <div class="toast" id="toast">
+    <div class="toast" id="toast" v-show="!loadError">
       <span class="k">{{ t('Tip', 'คลิก') }}</span>
       <span>{{ t('Click a country for its death toll & monitoring, or an AQI pin for a monitor', 'คลิกประเทศเพื่อดูจำนวนผู้เสียชีวิตและการตรวจวัด หรือคลิกหมุด AQI เพื่อดูเครื่องตรวจ') }}</span>
+    </div>
+
+    <div class="toast err" id="loaderr" v-if="loadError">
+      <span class="k">{{ t('Offline', 'ออฟไลน์') }}</span>
+      <span>{{ t('Could not load live data — showing the map without monitors. Please retry shortly.', 'โหลดข้อมูลสดไม่ได้ — แสดงแผนที่โดยไม่มีเครื่องตรวจ กรุณาลองใหม่อีกครั้ง') }}</span>
     </div>
 
     <aside class="panel filters" v-show="filtersOpen">
