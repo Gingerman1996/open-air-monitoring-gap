@@ -86,7 +86,9 @@ services:
     profiles: ["share"]
     command: ["http", "web:3000"]
     environment:
-      NGROK_AUTHTOKEN: "${NGROK_AUTHTOKEN:?set NGROK_AUTHTOKEN to your ngrok auth token}"
+      # soft default so the rest of the stack still runs without it; the ngrok
+      # container fails on its own if the `share` profile is started tokenless
+      NGROK_AUTHTOKEN: "${NGROK_AUTHTOKEN:-}"
     ports:
       - "4040:4040"
     depends_on:

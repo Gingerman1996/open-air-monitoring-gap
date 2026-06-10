@@ -668,7 +668,7 @@ function installSparkHover() {
       <div class="brand-divider" />
       <div>
         <b>{{ t('Monitoring Density Map', 'แผนที่ความหนาแน่นการตรวจวัด') }}</b>
-        <span>{{ t('Live demo · sample data', 'เดโม่ · ข้อมูลตัวอย่าง') }}</span>
+        <span>{{ t('Live data · AirGradient + GBD', 'ข้อมูลสด · AirGradient + GBD') }}</span>
       </div>
     </div>
 
