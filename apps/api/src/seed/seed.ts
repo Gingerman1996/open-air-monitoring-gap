@@ -30,6 +30,35 @@ const initSqlPath = () =>
     '/app/db/init.sql',
   ]);
 
+function loadCountryFeatures(): FeatureCollection<Geometry, { name: string }> {
+  const topo = JSON.parse(readFileSync(worldAtlasPath(), 'utf8'));
+  return feature(topo, topo.objects.countries) as unknown as FeatureCollection<
+    Geometry,
+    { name: string }
+  >;
+}
+
+// Russia/Fiji wrap the antimeridian: their main ring jumps +179→−179, which is a self-
+// intersection in planar lon/lat. Just storing it raw makes ST_MakeValid below fragment the
+// mainland into latitude bands with hairline gaps (white stripes across Russia), and breaks
+// ST_Contains (the degenerate ring's planar interior smears a band across the whole world).
+// ST_ShiftLongitude maps the far-east (<0°) vertices to 180–360°, so the ring becomes a clean,
+// *valid*, monotonically-increasing 20→190° shape — correct for ST_Contains and for the
+// L.geoJSON choropleth (which draws it as one continuous landmass past the dateline edge).
+async function applyGeometryFixups(client: { query: (sql: string) => Promise<unknown> }): Promise<void> {
+  await client.query(
+    `UPDATE countries SET geom = ST_ShiftLongitude(geom) WHERE name IN ('Russia', 'Fiji')`,
+  );
+  // Repair any remaining invalid polygons so ST_Contains is reliable — except Antarctica, a polar
+  // cap whose ring wraps all longitudes: "repairing" it mangles the shape, L.geoJSON renders the
+  // raw polygon fine, and it has no monitors/health data anyway. (Russia/Fiji are valid after the
+  // shift above, so this skips them.)
+  await client.query(
+    `UPDATE countries SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom, 'method=structure'), 3))
+     WHERE NOT ST_IsValid(geom) AND name <> 'Antarctica'`,
+  );
+}
+
 export async function runSeed(): Promise<void> {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL ?? 'postgres://openair:openair@localhost:5432/openair',
@@ -42,8 +71,39 @@ export async function runSeed(): Promise<void> {
 
     const existing = await pool.query<{ n: string }>('SELECT COUNT(*)::text AS n FROM countries');
     if (Number(existing.rows[0].n) > 0 && process.env.FORCE_RESEED !== 'true') {
-      log(`reference already seeded (${existing.rows[0].n} countries) — skip. FORCE_RESEED=true to rebuild.`);
-      return;
+      // volumes seeded before the ShiftLongitude fix hold split-Russia / repaired-Antarctica
+      // geometry; detect that (Russia never crosses 180° in the old data) and refresh ONLY the
+      // geometry in place — no TRUNCATE, so monitors/measurements/population all survive.
+      const stale = await pool.query<{ stale: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM countries WHERE name = 'Russia' AND ST_XMax(geom) <= 180) AS stale`,
+      );
+      if (!stale.rows[0]?.stale) {
+        log(`reference already seeded (${existing.rows[0].n} countries) — skip. FORCE_RESEED=true to rebuild.`);
+        return;
+      }
+      log('stale pre-ShiftLongitude geometry detected — refreshing country polygons in place');
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        for (const f of loadCountryFeatures().features) {
+          const name = f.properties?.name;
+          if (!name || !f.geometry) continue;
+          await client.query(
+            `UPDATE countries SET geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326))
+             WHERE name = $1`,
+            [name, JSON.stringify(f.geometry)],
+          );
+        }
+        await applyGeometryFixups(client);
+        await client.query('COMMIT');
+        log('geometry refresh done — country assignment is rebuilt by the next ingest run');
+        return;
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
     }
 
     const client = await pool.connect();
@@ -61,11 +121,7 @@ export async function runSeed(): Promise<void> {
         await client.query('INSERT INTO sources(name, kind, url, license) VALUES ($1,$2,$3,$4)', s);
       }
 
-      const topo = JSON.parse(readFileSync(worldAtlasPath(), 'utf8'));
-      const fc = feature(topo, topo.objects.countries) as unknown as FeatureCollection<
-        Geometry,
-        { name: string }
-      >;
+      const fc = loadCountryFeatures();
       for (const f of fc.features) {
         const name = f.properties?.name;
         if (!name || !f.geometry) continue;
@@ -78,24 +134,7 @@ export async function runSeed(): Promise<void> {
         );
       }
 
-      // Russia/Fiji wrap the antimeridian: their main ring jumps +179→−179, which is a self-
-      // intersection in planar lon/lat. Just storing it raw makes ST_MakeValid below fragment the
-      // mainland into latitude bands with hairline gaps (white stripes across Russia), and breaks
-      // ST_Contains (the degenerate ring's planar interior smears a band across the whole world).
-      // ST_ShiftLongitude maps the far-east (<0°) vertices to 180–360°, so the ring becomes a clean,
-      // *valid*, monotonically-increasing 20→190° shape — correct for ST_Contains and for the
-      // L.geoJSON choropleth (which draws it as one continuous landmass past the dateline edge).
-      await client.query(
-        `UPDATE countries SET geom = ST_ShiftLongitude(geom) WHERE name IN ('Russia', 'Fiji')`,
-      );
-      // Repair any remaining invalid polygons so ST_Contains is reliable — except Antarctica, a polar
-      // cap whose ring wraps all longitudes: "repairing" it mangles the shape, L.geoJSON renders the
-      // raw polygon fine, and it has no monitors/health data anyway. (Russia/Fiji are valid after the
-      // shift above, so this skips them.)
-      await client.query(
-        `UPDATE countries SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom, 'method=structure'), 3))
-         WHERE NOT ST_IsValid(geom) AND name <> 'Antarctica'`,
-      );
+      await applyGeometryFixups(client);
 
       await client.query('COMMIT');
       log(`done — ${fc.features.length} country polygons. Population + deaths/DALYs pulled by the reference refresh.`);

@@ -188,9 +188,17 @@ export async function runIngest(): Promise<void> {
       fetchPaged<Measurement>('/measurements/current', 'data'),
       fetchPaged<UrbanCenter>('/urban-centers', 'items'),
     ]);
-    const usable = measures.filter(
+    const readable = measures.filter(
       (m) => m.pm25 != null && Number.isFinite(m.latitude) && Number.isFinite(m.longitude),
     );
+    // lat < −58 is south of every inhabited landmass — the only sensors there are upstream
+    // lat/lng-swapped entries (e.g. "High Street Atlanta") that would land in Antarctica and
+    // poison its density row. Drop them with a trace instead of mapping garbage coordinates.
+    const usable = readable.filter((m) => (m.latitude as number) >= -58);
+    const dropped = readable.filter((m) => (m.latitude as number) < -58);
+    if (dropped.length) {
+      log(`WARN dropped ${dropped.length} sensors with lat < -58 (likely swapped lat/lng): ${dropped.map((m) => `${m.locationId} "${m.locationName}"`).join(', ')}`);
+    }
     log(`fetched ${measures.length} sensors (${usable.length} with a reading), ${cities.length} urban centers`);
 
     const client = await pool.connect();
@@ -203,6 +211,8 @@ export async function runIngest(): Promise<void> {
       await client.query(`DELETE FROM urban_centers`);
 
       await insertMonitors(client, usable, now);
+      // purge swapped-coordinate sensors ingested before the lat filter existed (measurements cascade)
+      await client.query(`DELETE FROM monitors WHERE ST_Y(location) < -58`);
       // graceful staleness — anything not refreshed recently is offline (keeps vanished sensors)
       await client.query(
         `UPDATE monitors SET status = CASE

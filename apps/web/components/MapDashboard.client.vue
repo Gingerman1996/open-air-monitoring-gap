@@ -85,6 +85,10 @@ const PRICE = { low_cost: 250, reference: 25000 };
 const fmtMoney = (n: number) => '$' + Math.round(n).toLocaleString();
 const fmt = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : String(n));
 const escTip = (s: string) => s.replace(/"/g, '&quot;');
+// upstream AirGradient fields (locationName etc.) are owner-typed free text — escape before innerHTML.
+// null-safe: country/owner are null for monitors outside every polygon despite the interface type.
+const esc = (s: string | null | undefined) =>
+  (s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const qmark = (tip: string) => ` <span class="qmark" tabindex="0" data-tip="${escTip(tip)}">?</span>`;
 
 // ---- choropleth (country deaths, rendered as a single Leaflet GeoJSON vector layer) ----
@@ -143,12 +147,12 @@ function monMarker(m: Monitor) {
 }
 function popupHtml(m: Monitor) {
   const typeLabel = t(m.type === 'reference' ? 'Reference' : 'Low-cost', m.type === 'reference' ? 'อ้างอิง' : 'ราคาประหยัด');
-  const title = (m.name && m.name.trim()) || m.id;
+  const title = esc((m.name && m.name.trim()) || m.id);
   return `<div class="mpop"><div class="mt">${title}</div>` +
-    `<div class="ms">${m.manufacturer} · ${typeLabel}<br>${m.country} · ${m.owner}</div>` +
+    `<div class="ms">${esc(m.manufacturer)} · ${typeLabel}<br>${esc(m.country)} · ${esc(m.owner)}</div>` +
     `<div class="mrow"><span style="width:11px;height:11px;border-radius:50%;background:${aqiColor(m.aqi)};display:inline-block"></span> ${t('US AQI', 'AQI (US)')} ${m.aqi} · PM2.5 ${m.pm25}</div>` +
     (m.status === 'offline' ? `<div class="mrow off">● ${t('Offline', 'ออฟไลน์')}</div>` : '') +
-    `<div class="mhist" data-id="${m.id}"></div>` +
+    `<div class="mhist" data-id="${esc(m.id)}"></div>` +
     '</div>';
 }
 
