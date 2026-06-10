@@ -78,22 +78,30 @@ export async function runSeed(): Promise<void> {
         );
       }
 
-      // world-atlas has a few antimeridian-crossing polygons (Russia/Fiji/Antarctica) where one ring
-      // spans -180..180; in the Web-Mercator MVT choropleth that ring's wrap edge draws as a horizontal
-      // band across the map. Split them at the dateline (shift to 0..360, cut, shift the east half back)
-      // and repair any remaining self-intersections so ST_Contains + tiles behave.
+      // world-atlas has a few antimeridian-crossing polygons (Russia/Fiji/Antarctica) where a ring
+      // spans -180..180; in the Web-Mercator MVT choropleth that wrap edge draws as a band across the
+      // map. Split ONLY the offending ring(s) at the dateline — per-part, where a part spans >180° of
+      // longitude — so the mainland stays one piece (splitting the whole polygon fragments it into
+      // slivers that render as thin white seams). method=structure avoids linework sliver artifacts.
       await client.query(
-        `UPDATE countries c
-         SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Union(
-               ST_Intersection(x.g, ST_MakeEnvelope(-180,-90,180,90,4326)),
-               ST_Translate(ST_Intersection(x.g, ST_MakeEnvelope(180,-90,360,90,4326)), -360, 0)
-             )), 3))
-         FROM (SELECT id, ST_MakeValid(ST_ShiftLongitude(ST_MakeValid(geom))) g
-               FROM countries WHERE ST_XMin(geom) < -179 AND ST_XMax(geom) > 179) x
-         WHERE c.id = x.id`,
+        `UPDATE countries c SET geom = (
+           SELECT ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Collect(q.q), 'method=structure'), 3))
+           FROM (
+             SELECT CASE WHEN (ST_XMax(dp.geom) - ST_XMin(dp.geom)) > 180
+               THEN (WITH sp AS (
+                       SELECT ST_MakeValid(ST_ShiftLongitude(ST_MakeValid(dp.geom, 'method=structure')), 'method=structure') s)
+                     SELECT ST_Union(
+                       ST_Intersection(s, ST_MakeEnvelope(-180,-90,180,90,4326)),
+                       ST_Translate(ST_Intersection(s, ST_MakeEnvelope(180,-90,360,90,4326)), -360, 0)) FROM sp)
+               ELSE dp.geom END q
+             FROM (SELECT (ST_Dump(c.geom)).geom) dp
+           ) q
+         )
+         WHERE EXISTS (SELECT 1 FROM (SELECT (ST_Dump(c.geom)).geom dg) z WHERE ST_XMax(z.dg) - ST_XMin(z.dg) > 180)`,
       );
+      // repair any remaining self-intersections (incl. Antarctica's polar rings) so ST_Contains + tiles behave
       await client.query(
-        `UPDATE countries SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom), 3)) WHERE NOT ST_IsValid(geom)`,
+        `UPDATE countries SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom, 'method=structure'), 3)) WHERE NOT ST_IsValid(geom)`,
       );
 
       await client.query('COMMIT');
