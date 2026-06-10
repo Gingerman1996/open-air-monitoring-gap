@@ -134,8 +134,10 @@ Responses cache-keyed in Redis (TTL ~5 min) for the aggregate endpoints.
 - **Phase 1 (MVP):** ✅ single API, choropleth, live AirGradient ingest on startup + a BullMQ
   worker refreshing every 10 min, seeded reference deaths/population.
 - **Phase 2 (Pilot):** ✅ **TimescaleDB** hypertable for `measurements` with accumulating history
-  (per-monitor PM2.5 trend on pin click); **Martin** serving the country choropleth as PostGIS
-  **vector tiles**, rendered by **Leaflet.VectorGrid** (deaths baked into each tile). ← *we are here*
+  (per-monitor PM2.5 trend on pin click); country choropleth served as PostGIS **GeoJSON**
+  (`/density/choropleth`, Redis-cached) and rendered by `L.geoJSON`. (A Martin/MVT vector-tile
+  pipeline was tried first and dropped — VectorGrid can't fill polar/antimeridian polygons.)
+  ← *we are here*
 - **Phase 3 (Global):** continuous-aggregate rollups + retention on the hypertable; MapLibre GL;
   Kubernetes, read replicas, CDN-fronted tiles, regional API.
 

@@ -120,27 +120,6 @@ CREATE TABLE IF NOT EXISTS density_stats (
 CREATE INDEX IF NOT EXISTS density_scope_idx ON density_stats (scope_type);
 
 -- ---------------------------------------------------------------------------
--- Vector-tile function source for Martin (PostGIS → MVT). The deaths + gap are
--- baked into each tile so the choropleth colours straight from the tile, no
--- client-side join. Martin auto-discovers (z,x,y)->bytea functions.
-CREATE OR REPLACE FUNCTION public.country_tiles(z integer, x integer, y integer)
-RETURNS bytea AS $$
-  WITH bounds AS (SELECT ST_TileEnvelope(z, x, y) AS geom),
-  mvtgeom AS (
-    SELECT ST_AsMVTGeom(ST_Transform(c.geom, 3857), bounds.geom) AS geom,
-           c.name,
-           hi.deaths,
-           ds.gap_ratio,
-           ds.gap_level
-    FROM countries c
-    CROSS JOIN bounds
-    LEFT JOIN LATERAL (
-      SELECT deaths FROM health_impacts h
-      WHERE h.country_name = c.name AND h.pollutant = 'pm25'
-      ORDER BY year DESC LIMIT 1
-    ) hi ON true
-    LEFT JOIN density_stats ds ON ds.scope_type = 'country' AND ds.scope_name = c.name
-    WHERE c.geom && ST_Transform(bounds.geom, 4326)
-  )
-  SELECT ST_AsMVT(mvtgeom, 'country_tiles') FROM mvtgeom;
-$$ LANGUAGE sql STABLE PARALLEL SAFE;
+-- The Martin/MVT tile pipeline was replaced by the L.geoJSON choropleth
+-- (GET /density/choropleth); drop its function source from existing volumes.
+DROP FUNCTION IF EXISTS public.country_tiles(integer, integer, integer);

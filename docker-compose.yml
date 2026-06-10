@@ -53,16 +53,6 @@ services:
       redis:
         condition: service_healthy
 
-  # PostGIS → vector tiles (auto-discovers the country_tiles function source)
-  martin:
-    image: ghcr.io/maplibre/martin:v0.14.2
-    command: ["postgres://openair:openair@postgres:5432/openair"]
-    ports:
-      - "3002:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   web:
     build:
       context: .
@@ -75,7 +65,6 @@ services:
       - "3000:3000"
     depends_on:
       - api
-      - martin
 
   # optional reverse proxy — `docker compose --profile edge up`
   nginx:

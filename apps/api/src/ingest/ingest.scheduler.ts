@@ -49,7 +49,7 @@ export class IngestScheduler implements OnModuleInit, OnModuleDestroy {
       async () => {
         this.logger.log('scheduled refresh — pulling reference data (population, deaths, DALYs)');
         await runReferenceRefresh(true);
-        // recompute density_stats/gap (and the deaths baked into the tiles) off the fresh reference
+        // recompute density_stats/gap off the fresh reference
         await runIngest();
       },
       `reference refresh scheduled at cron '${REFERENCE_CRON}' (${REFERENCE_TZ})`,
