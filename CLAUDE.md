@@ -32,8 +32,8 @@ The browser stays same-origin: Nitro proxies `/api/**`→api and `/tiles/**`→m
 
 ```
 apps/web      Nuxt 3 frontend (the dashboard)
-apps/api      NestJS API (/api/v1)
-db/           init.sql (schema) + seed (TS script that ports the demo mock data)
+apps/api      NestJS API (/api/v1) · src/ingest/{ingest,reference,ingest.scheduler}.ts
+db/           init.sql (schema) · data/ (world-atlas polygons + ISO3 crosswalk) · seed (schema + polygons)
 docker-compose.yml
 scripts/      chrome-debug.mjs — Playwright loop helper
 design-reference/  original prototypes + chat (read-only reference)
@@ -45,14 +45,21 @@ design-reference/  original prototypes + chat (read-only reference)
 # infra only (fast dev loop): Postgres+PostGIS + Redis
 docker compose up -d postgres redis
 
-# seed reference data (countries + deaths + population), idempotent
+# seed the schema + country polygons + source rows (idempotent; FORCE_RESEED=true to rebuild)
 npm --prefix apps/api run seed
 
-# pull LIVE monitors from the AirGradient Map API (replaces the sample monitors)
+# pull LIVE reference: World Bank population + State of Global Air GBD-2023 deaths/DALYs
+# (per-country 1990→2023; ~2 min, the API rate-limits so it fans out slowly). CLI = force.
+npm --prefix apps/api run refresh-reference
+
+# pull LIVE monitors from the AirGradient Map API
 npm --prefix apps/api run ingest
 
-# in the container, ingest also runs on boot (INGEST_ON_START) and on a BullMQ
-# schedule every INGEST_INTERVAL_MS (default 600000 = 10 min, gated by INGEST_SCHEDULE)
+# in the container, boot runs seed → reference → ingest, then BullMQ schedules:
+#   monitors  every INGEST_INTERVAL_MS (default 600000 = 10 min)
+#   reference on REFERENCE_CRON (default '0 0 1 * *' Asia/Bangkok) — then re-ingests for density
+# all gated by INGEST_SCHEDULE. Boot reference (REFERENCE_ON_START) is vintage-aware: it
+# refreshes a fresh DB, else refetches only when the API has a newer year than we hold.
 
 # dev servers
 npm --prefix apps/api run start:dev     # http://localhost:3001/api/v1  (docs at /api/v1/docs)
@@ -61,6 +68,19 @@ npm --prefix apps/web run dev           # http://localhost:3000
 # full stack, one command (the deliverable)
 docker compose up --build
 ```
+
+## Data sources (all live — no hardcoded values)
+
+| Data | Source | Notes |
+|---|---|---|
+| Monitors + readings | AirGradient Map API (`map-data.airgradient.com`) | ~17k sensors; refreshed every 10 min |
+| Deaths + DALYs | **State of Global Air GBD-2023** backend (`data3.zevross.com/hei/globalburden-2025`) | the SoGA data-explorer's public JSON API; per-country 1990→2023. Per-country only (no bulk) and **503s under load** → low concurrency + retry/backoff + sequential mop-up; **refuses to replace the table if >5% of countries fail** (so a degraded API can't wipe good data) |
+| Population | World Bank `SP.POP.TOTL` | most-recent value per country |
+| Boundaries | Natural Earth world-atlas 110m (`db/data/countries-110m.json`) | seeded; antimeridian polygons (Russia/Fiji/Antarctica) are **dateline-split** in the seed so the MVT choropleth has no band |
+
+- Reference deaths/DALYs/population key on **ISO3 → `db/data/iso3166.json` → `countries.iso_n3`**. Rows are labelled `pollutant='pm25'` — the join key for tiles, density, and the API. Don't rename it.
+- Coverage: **169/177** map countries have deaths data. The 8 without (Antarctica, Kosovo, N. Cyprus, Somaliland, W. Sahara, Falklands, New Caledonia, Fr. S. Antarctic Lands) are **GBD-untracked** (uninhabited or disputed/dependent) — not a bug. ~35 tiny GBD countries (Singapore, Malta…) have data but no 110m polygon to draw; switching to `countries-50m` would surface them.
+- GBD publishes a new vintage roughly annually; the monthly cron + vintage-aware boot pick it up automatically. WHO GHO (the prior source, capped at 2019) was dropped.
 
 ## Conventions (follow existing code)
 

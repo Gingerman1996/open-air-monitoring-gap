@@ -30,3 +30,6 @@ debug-artifacts/
 
 # large standalone design exports (keep the editable HTML refs, drop the bundled blobs)
 design-reference/project/*standalone*.html
+
+# local handoff notes (working doc for the next session, not part of the repo)
+HANDOFF.md
