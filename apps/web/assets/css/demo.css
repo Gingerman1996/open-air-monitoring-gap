@@ -25,7 +25,9 @@ body{font-family:var(--sans);color:var(--ink);background:var(--paper);-webkit-fo
 .aqi-strip{height:4px;flex:none;background:linear-gradient(90deg,var(--aqi-good),var(--aqi-good) 18%,var(--aqi-mod) 38%,var(--aqi-sens) 56%,var(--aqi-bad) 76%,var(--aqi-vbad) 92%,var(--aqi-haz));}
 
 /* ---------- Header ---------- */
-.hdr{flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;height:64px;background:var(--card);border-bottom:1px solid var(--line);z-index:1200;overflow-x:auto;overflow-y:hidden;}
+/* no overflow clip here — it would cut off the Export/Sources dropdowns that hang below the bar;
+   position:relative makes the z-index:1200 effective so the bar + its menus stack above the map */
+.hdr{flex:none;display:flex;align-items:center;gap:14px;padding:0 18px;height:64px;background:var(--card);border-bottom:1px solid var(--line);position:relative;z-index:1200;}
 .brand{display:flex;align-items:center;gap:11px;flex:none;}
 .logo{width:34px;height:34px;border-radius:9px;background:var(--teal);position:relative;flex:none;}
 .logo::before{content:'';position:absolute;inset:8px;border:2px solid rgba(255,255,255,.55);border-radius:50%;}
