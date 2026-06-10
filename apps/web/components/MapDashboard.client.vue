@@ -31,6 +31,11 @@ const sourcesOpen = ref(false);
 const loadError = ref(false);
 const monOn = ref(true);
 const healOn = ref(true);
+const unit = ref<'aqi' | 'pm25'>('aqi'); // value shown on pins/clusters (colors stay AQI-band)
+const setUnit = (u: 'aqi' | 'pm25') => {
+  unit.value = u;
+  try { localStorage.setItem('demo-unit', u); } catch { /* storage unavailable */ }
+};
 const visCount = ref(0);
 const filterType = reactive<Record<string, boolean>>({ low_cost: true, reference: true });
 const filterStatus = reactive<Record<string, boolean>>({ online: true, offline: true });
@@ -133,15 +138,19 @@ function selectCountry(name: string, deaths: number | null, layer: any = null) {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ---- monitors / clusters ----
+/** compact PM2.5 for a 34px pin: 1 decimal under 10, integer above */
+const pmLabel = (v: number) => (v < 10 ? String(Math.round(v * 10) / 10) : String(Math.round(v)));
+
 function monMarker(m: Monitor) {
   const off = m.status === 'offline';
   const icon = L.divIcon({
     className: 'pm-pin',
-    html: `<div class="pm${off ? ' off' : ''}" style="background:${aqiColor(m.aqi)}">${m.aqi}</div>`,
+    html: `<div class="pm${off ? ' off' : ''}" style="background:${aqiColor(m.aqi)}">${unit.value === 'aqi' ? m.aqi : pmLabel(m.pm25)}</div>`,
     iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -15],
   });
-  const mk = L.marker([m.lat, m.lng], { icon }) as L.Marker & { __aqi: number };
+  const mk = L.marker([m.lat, m.lng], { icon }) as L.Marker & { __aqi: number; __pm: number };
   mk.__aqi = m.aqi;
+  mk.__pm = m.pm25;
   mk.bindPopup(popupHtml(m), { closeButton: false });
   return mk;
 }
@@ -301,7 +310,7 @@ async function openCountry(name: string, deathsArg: number | null = null) {
   let body =
     `<div class="metric"><div class="ml">${t('Deaths attributable to PM2.5', 'ผู้เสียชีวิตจาก PM2.5')}${qmark(t('Estimated annual deaths attributable to PM2.5 air pollution — source: State of Global Air / GBD (IHME).', 'ประมาณการผู้เสียชีวิตต่อปีจากมลพิษ PM2.5 — ที่มา: State of Global Air / GBD (IHME)'))}</div>` +
       `<div class="mv">${deaths != null ? fmt(deaths) : '—'} <small>${t('per year', 'ต่อปี')}</small></div>` +
-      (deathsPer100k != null ? `<div class="sub">${deathsPer100k} ${t('per 100k people', 'ต่อแสนคน')}</div>` : '') +
+      (deathsPer100k != null ? `<div class="sub">${deathsPer100k} ${t('per 100k people', 'ต่อแสนคน')}${qmark(t('Annual PM2.5-attributable deaths per 100,000 population — normalised by population so countries of different sizes can be compared. Population: World Bank.', 'ผู้เสียชีวิตจาก PM2.5 ต่อประชากรแสนคนต่อปี — ปรับตามจำนวนประชากรเพื่อให้เทียบระหว่างประเทศที่ขนาดต่างกันได้ · ประชากร: World Bank'))}</div>` : '') +
     '</div>';
 
   if (deaths != null) {
@@ -315,15 +324,15 @@ async function openCountry(name: string, deathsArg: number | null = null) {
 
   if (ms > 0) {
     body +=
-      `<div class="metric"><div class="ml">${t('Monitors in sample', 'เครื่องตรวจในตัวอย่าง')}${qmark(t('Number of public air-quality monitors in this dataset for the country (online + offline).', 'จำนวนเครื่องตรวจวัดคุณภาพอากาศสาธารณะในชุดข้อมูลสำหรับประเทศนี้ (ออนไลน์ + ออฟไลน์)'))}</div>` +
+      `<div class="metric"><div class="ml">${t('Public monitors', 'เครื่องตรวจวัดสาธารณะ')}${qmark(t('Live count of public air-quality monitors in this country (online + offline), pulled from the AirGradient Map API and refreshed every 10 minutes.', 'จำนวนเครื่องตรวจวัดคุณภาพอากาศสาธารณะในประเทศนี้ (ออนไลน์ + ออฟไลน์) ดึงสดจาก AirGradient Map API รีเฟรชทุก 10 นาที'))}</div>` +
         `<div class="mv">${ms} <small>${online} ${t('online', 'ออนไลน์')}</small></div>` +
-        (per100k != null ? `<div class="sub">${per100k} ${t('per 100k people', 'ต่อแสนคน')}</div>` : '') +
+        (per100k != null ? `<div class="sub">${per100k} ${t('per 100k people', 'ต่อแสนคน')}${qmark(t('Public monitors per 100,000 population — the monitoring-density side of the gap calculation. Population: World Bank.', 'เครื่องตรวจวัดสาธารณะต่อประชากรแสนคน — ฝั่งความหนาแน่นการตรวจวัดในสูตรคำนวณ gap · ประชากร: World Bank'))}</div>` : '') +
       '</div>';
     body += gapBlock(lvl, gap);
-    body += investBlock(deathsPer100k, rec?.population ?? null, ms);
+    body += investBlock(name, deathsPer100k, rec?.population ?? null, ms);
   } else {
     body +=
-      `<div class="metric"><div class="ml">${t('Monitors in sample', 'เครื่องตรวจในตัวอย่าง')}</div>` +
+      `<div class="metric"><div class="ml">${t('Public monitors', 'เครื่องตรวจวัดสาธารณะ')}${qmark(t('Live count of public air-quality monitors in this country, pulled from the AirGradient Map API and refreshed every 10 minutes.', 'จำนวนเครื่องตรวจวัดคุณภาพอากาศสาธารณะในประเทศนี้ ดึงสดจาก AirGradient Map API รีเฟรชทุก 10 นาที'))}</div>` +
         `<div class="mv">0</div>` +
         `<div class="sub">${t('No public monitors here — a coverage blind spot.', 'ไม่มีเครื่องตรวจวัดสาธารณะ — จุดบอดของการตรวจวัด')}</div>` +
       '</div>';
@@ -354,7 +363,7 @@ function gapBlock(lvl: number | null, gap: number | null) {
     `<div class="gapdesc">${desc}</div></div>`;
 }
 
-function investBlock(deathsPer100k: number | null, pop: number | null, ms: number) {
+function investBlock(country: string, deathsPer100k: number | null, pop: number | null, ms: number) {
   const t0 = stats?.gap_threshold_lv1;
   if (deathsPer100k == null || !pop || !t0) return '';
   const gap = gapRatio(deathsPer100k, pop, ms);
@@ -372,6 +381,7 @@ function investBlock(deathsPer100k: number | null, pop: number | null, ms: numbe
       `<div class="gf-dh">${t('Donation to fully equip (low-cost)', 'เงินบริจาคเพื่อจัดให้ครบ (ราคาประหยัด)')}</div>` +
       `<div class="donatebar"><i style="width:${pct}%"></i></div>` +
       `<div class="gf-drow"><span>${t('Raised', 'ระดมได้')} ${fmtMoney(raised)} / ${fmtMoney(goal)}</span><b>${t('need', 'ต้องการอีก')} ${fmtMoney(stillNeed)}</b></div>` +
+      `<a class="gf-btn" href="/donate?country=${encodeURIComponent(country)}&need=${need}&cost=${stillNeed}">${t('Donate to close this gap', 'ร่วมบริจาคเพื่อปิดช่องว่างนี้')} →</a>` +
     '</div></div>';
 }
 
@@ -466,6 +476,9 @@ function exitStory() {
 
 // ---- mount ----
 onMounted(async () => {
+  // under the pages router this .client component mounts inside Suspense, where template refs
+  // can still be unresolved when onMounted fires — wait a tick so #map exists before Leaflet
+  if (!mapEl.value) await nextTick();
   map = L.map(mapEl.value!, { zoomControl: false, worldCopyJump: true, minZoom: 2 }).setView([26, 30], 3);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
@@ -482,15 +495,19 @@ onMounted(async () => {
   cluster = L.markerClusterGroup({
     maxClusterRadius: 48, showCoverageOnHover: false, chunkedLoading: true,
     iconCreateFunction: (cl) => {
-      const kids = cl.getAllChildMarkers() as Array<L.Marker & { __aqi?: number }>;
-      let s = 0; for (const k of kids) s += k.__aqi ?? 0;
-      const avg = Math.round(s / Math.max(kids.length, 1));
-      const col = aqiColor(avg);
-      const n = cl.getChildCount();
-      const w = n < 10 ? 36 : n < 50 ? 44 : n < 200 ? 52 : 60;
+      const kids = cl.getAllChildMarkers() as Array<L.Marker & { __aqi?: number; __pm?: number }>;
+      let sa = 0, sp = 0;
+      for (const k of kids) { sa += k.__aqi ?? 0; sp += k.__pm ?? 0; }
+      const n = Math.max(kids.length, 1);
+      const avgAqi = Math.round(sa / n);
+      const col = aqiColor(avgAqi); // color always by AQI band, whatever the displayed unit
+      const label = unit.value === 'aqi' ? String(avgAqi) : pmLabel(sp / n);
+      const unitTitle = unit.value === 'aqi' ? t('avg US AQI', 'US AQI เฉลี่ย') : t('avg PM2.5 µg/m³', 'PM2.5 เฉลี่ย µg/m³');
+      const cnt = cl.getChildCount();
+      const w = cnt < 10 ? 36 : cnt < 50 ? 44 : cnt < 200 ? 52 : 60;
       return L.divIcon({
         className: 'pm-cluster',
-        html: `<div class="cl" style="width:${w}px;height:${w}px;background:${col};box-shadow:0 0 0 6px ${col}44,0 2px 7px rgba(20,32,27,.3)" title="${n} ${t('sensors', 'เครื่อง')} · ${t('avg AQI', 'AQI เฉลี่ย')}">${avg}</div>`,
+        html: `<div class="cl" style="width:${w}px;height:${w}px;background:${col};box-shadow:0 0 0 6px ${col}44,0 2px 7px rgba(20,32,27,.3)" title="${cnt} ${t('sensors', 'เครื่อง')} · ${unitTitle}">${label}</div>`,
         iconSize: [w, w],
       });
     },
@@ -498,10 +515,12 @@ onMounted(async () => {
   healthLayer.addTo(map);
   cluster.addTo(map);
 
-  // restore language
+  // restore language + pin unit
   try {
     const saved = localStorage.getItem('demo-lang');
     if (saved === 'th' || saved === 'en') setLang(saved);
+    const savedUnit = localStorage.getItem('demo-unit');
+    if (savedUnit === 'aqi' || savedUnit === 'pm25') unit.value = savedUnit;
   } catch { /* ignore */ }
 
   // load data from the API (the choropleth GeoJSON included). The basemap
@@ -549,6 +568,8 @@ const cntOffline = computed(() => MONITORS.filter((m) => m.status === 'offline')
 const cntMfg = (mf: string) => MONITORS.filter((m) => m.manufacturer === mf).length;
 
 watch([filterType, filterStatus, filterMfg], () => { if (cluster) rebuildMonitors(); }, { deep: true });
+// pin/cluster labels carry the unit — re-render markers when it changes
+watch(unit, () => { if (cluster) rebuildMonitors(); });
 
 // ---- instant "?" tooltip (no native-title delay, escapes panel clipping) ----
 function installTooltips() {
@@ -737,6 +758,13 @@ function installSparkHover() {
         <button class="x" @click="filtersOpen = false">×</button>
       </div>
       <div class="fbody">
+        <div class="fgrp">
+          <div class="flabel">{{ t('Pin unit', 'หน่วยบนหมุด') }}</div>
+          <div class="unit-seg">
+            <button :class="{ active: unit === 'aqi' }" @click="setUnit('aqi')">US AQI</button>
+            <button :class="{ active: unit === 'pm25' }" @click="setUnit('pm25')">µg/m³</button>
+          </div>
+        </div>
         <div class="fgrp">
           <div class="flabel">{{ t('Monitor type', 'ประเภทเครื่อง') }}</div>
           <div class="opts">
