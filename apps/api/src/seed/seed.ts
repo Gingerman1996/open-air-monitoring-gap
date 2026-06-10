@@ -78,30 +78,23 @@ export async function runSeed(): Promise<void> {
         );
       }
 
-      // world-atlas has a few antimeridian-crossing polygons (Russia/Fiji/Antarctica) where a ring
-      // spans -180..180; in the Web-Mercator MVT choropleth that wrap edge draws as a band across the
-      // map. Split ONLY the offending ring(s) at the dateline — per-part, where a part spans >180° of
-      // longitude — so the mainland stays one piece (splitting the whole polygon fragments it into
-      // slivers that render as thin white seams). method=structure avoids linework sliver artifacts.
+      // Russia/Fiji wrap the antimeridian: their main ring jumps +179→−179, which is a self-
+      // intersection in planar lon/lat. Just storing it raw makes ST_MakeValid below fragment the
+      // mainland into latitude bands with hairline gaps (white stripes across Russia), and breaks
+      // ST_Contains (the degenerate ring's planar interior smears a band across the whole world).
+      // ST_ShiftLongitude maps the far-east (<0°) vertices to 180–360°, so the ring becomes a clean,
+      // *valid*, monotonically-increasing 20→190° shape — correct for ST_Contains and for the
+      // L.geoJSON choropleth (which draws it as one continuous landmass past the dateline edge).
       await client.query(
-        `UPDATE countries c SET geom = (
-           SELECT ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Collect(q.q), 'method=structure'), 3))
-           FROM (
-             SELECT CASE WHEN (ST_XMax(dp.geom) - ST_XMin(dp.geom)) > 180
-               THEN (WITH sp AS (
-                       SELECT ST_MakeValid(ST_ShiftLongitude(ST_MakeValid(dp.geom, 'method=structure')), 'method=structure') s)
-                     SELECT ST_Union(
-                       ST_Intersection(s, ST_MakeEnvelope(-180,-90,180,90,4326)),
-                       ST_Translate(ST_Intersection(s, ST_MakeEnvelope(180,-90,360,90,4326)), -360, 0)) FROM sp)
-               ELSE dp.geom END q
-             FROM (SELECT (ST_Dump(c.geom)).geom) dp
-           ) q
-         )
-         WHERE EXISTS (SELECT 1 FROM (SELECT (ST_Dump(c.geom)).geom dg) z WHERE ST_XMax(z.dg) - ST_XMin(z.dg) > 180)`,
+        `UPDATE countries SET geom = ST_ShiftLongitude(geom) WHERE name IN ('Russia', 'Fiji')`,
       );
-      // repair any remaining self-intersections (incl. Antarctica's polar rings) so ST_Contains + tiles behave
+      // Repair any remaining invalid polygons so ST_Contains is reliable — except Antarctica, a polar
+      // cap whose ring wraps all longitudes: "repairing" it mangles the shape, L.geoJSON renders the
+      // raw polygon fine, and it has no monitors/health data anyway. (Russia/Fiji are valid after the
+      // shift above, so this skips them.)
       await client.query(
-        `UPDATE countries SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom, 'method=structure'), 3)) WHERE NOT ST_IsValid(geom)`,
+        `UPDATE countries SET geom = ST_Multi(ST_CollectionExtract(ST_MakeValid(geom, 'method=structure'), 3))
+         WHERE NOT ST_IsValid(geom) AND name <> 'Antarctica'`,
       );
 
       await client.query('COMMIT');

@@ -6,6 +6,8 @@ const tileProxyTarget = process.env.TILE_PROXY_TARGET ?? 'http://localhost:3002'
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
   devtools: { enabled: true },
+  // keep test files out of the Nuxt build + utils/ auto-import scan (Vitest finds them itself)
+  ignore: ['**/*.spec.*', '**/*.test.*'],
   css: [
     'leaflet/dist/leaflet.css',
     'leaflet.markercluster/dist/MarkerCluster.css',

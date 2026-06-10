@@ -6,6 +6,7 @@ import { AppModule } from './app.module';
 import { runSeed } from './seed/seed';
 import { runReferenceRefresh } from './ingest/reference';
 import { runIngest } from './ingest/ingest';
+import { runTimescaleSetup } from './ingest/timescale';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('bootstrap');
@@ -32,6 +33,16 @@ async function bootstrap(): Promise<void> {
       await runIngest();
     } catch (err) {
       logger.warn(`live ingest failed, serving seeded data: ${(err as Error).message}`);
+    }
+  }
+
+  // Phase 3: hourly continuous-aggregate rollup + 90-day raw retention on the measurements hypertable
+  if (process.env.TIMESCALE_ON_START === 'true') {
+    logger.log('TIMESCALE_ON_START=true — applying continuous aggregate + retention policy');
+    try {
+      await runTimescaleSetup();
+    } catch (err) {
+      logger.warn(`timescale setup failed: ${(err as Error).message}`);
     }
   }
 

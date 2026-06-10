@@ -28,6 +28,7 @@ const infoHtml = ref('');
 const filtersOpen = ref(true);
 const exportOpen = ref(false);
 const sourcesOpen = ref(false);
+const loadError = ref(false);
 const monOn = ref(true);
 const healOn = ref(true);
 const visCount = ref(0);
@@ -45,9 +46,10 @@ let map: L.Map;
 let cluster: L.MarkerClusterGroup;
 const healthLayer = L.layerGroup();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let choroLayer: any = null; // Leaflet.VectorGrid layer (untyped lib)
+let choroLayer: any = null; // L.geoJSON country-choropleth layer
 let selName: string | null = null;
 let selDeaths: number | null = null;
+let selLayer: any = null; // the currently-highlighted choropleth feature layer
 const seriesCache = new Map<string, { year: number; deaths: number; deaths_per_100k: number }[]>();
 
 // ---- palettes (ported from the prototype) ----
@@ -85,8 +87,9 @@ const fmt = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : String(
 const escTip = (s: string) => s.replace(/"/g, '&quot;');
 const qmark = (tip: string) => ` <span class="qmark" tabindex="0" data-tip="${escTip(tip)}">?</span>`;
 
-// ---- choropleth (PostGIS → Martin vector tiles, rendered by Leaflet.VectorGrid) ----
-// deaths are baked into each tile feature, so the colour comes straight off the tile.
+// ---- choropleth (country deaths, rendered as a single Leaflet GeoJSON vector layer) ----
+// Only ~177 polygons (Natural Earth 110m), so a GeoJSON layer is plenty — and unlike the Martin/MVT
+// path it renders antimeridian + polar (Antarctica) polygons correctly instead of leaving them blank.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function vgStyle(deaths: number | null | undefined, sel: boolean) {
   return {
@@ -99,34 +102,28 @@ function vgStyle(deaths: number | null | undefined, sel: boolean) {
   };
 }
 async function buildChoropleth() {
-  (window as any).L = L; // leaflet.vectorgrid is an old UMD that attaches to the global L
-  await import('leaflet.vectorgrid');
-  const VG = (L as any).vectorGrid;
-  choroLayer = VG.protobuf(`${api.tileBase}/country_tiles/{z}/{x}/{y}`, {
-    rendererFactory: (L as any).svg.tile,
-    interactive: true,
-    maxZoom: 19,
-    getFeatureId: (f: any) => f.properties.name,
-    vectorTileLayerStyles: {
-      country_tiles: (props: any) => vgStyle(props.deaths, false),
+  const fc = await api.get<any>('/density/choropleth');
+  choroLayer = (L as any).geoJSON(fc, {
+    style: (f: any) => vgStyle(f.properties.deaths, false),
+    onEachFeature: (f: any, layer: any) => {
+      const { name, deaths } = f.properties;
+      layer.on('click', () => selectCountry(name, deaths ?? null, layer));
+      layer.on('mouseover', () => {
+        if (name !== selName) { layer.setStyle({ fillOpacity: 0.6, weight: 1.4 }); layer.bringToFront(); }
+      });
+      layer.on('mouseout', () => {
+        if (name !== selName) layer.setStyle(vgStyle(deaths, false));
+      });
     },
-  });
-  choroLayer.on('click', (e: any) => selectCountry(e.layer.properties.name, e.layer.properties.deaths ?? null));
-  choroLayer.on('mouseover', (e: any) => {
-    const { name, deaths } = e.layer.properties;
-    if (name !== selName) choroLayer.setFeatureStyle(name, { ...vgStyle(deaths, false), fillOpacity: 0.6, weight: 1.4 });
-  });
-  choroLayer.on('mouseout', (e: any) => {
-    const name = e.layer.properties.name;
-    if (name !== selName) choroLayer.resetFeatureStyle(name);
   });
   healthLayer.addLayer(choroLayer);
 }
-function selectCountry(name: string, deaths: number | null) {
-  if (selName && choroLayer) choroLayer.resetFeatureStyle(selName);
+function selectCountry(name: string, deaths: number | null, layer: any = null) {
+  if (selLayer) selLayer.setStyle(vgStyle(selDeaths, false));
   selName = name;
   selDeaths = deaths;
-  choroLayer?.setFeatureStyle(name, vgStyle(deaths, true));
+  selLayer = layer;
+  if (selLayer) { selLayer.setStyle(vgStyle(deaths, true)); selLayer.bringToFront(); }
   openCountry(name, deaths);
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -325,9 +322,9 @@ function gapBlock(lvl: number | null, gap: number | null) {
 function investBlock(deathsPer100k: number | null, pop: number | null, ms: number) {
   const t0 = stats?.gap_threshold_lv1;
   if (deathsPer100k == null || !pop || !t0) return '';
-  const gap = ms > 0 ? deathsPer100k / Math.max(ms / (pop / 100000), 0.001) : null;
+  const gap = gapRatio(deathsPer100k, pop, ms);
   if (gap != null && gap < t0) return `<div class="gapfix ok">${t('✓ Already in the good zone (Lv 1)', '✓ อยู่ในโซนที่ดีแล้ว (Lv 1)')}</div>`;
-  const need = Math.max(0, Math.ceil((deathsPer100k / t0) * pop / 100000) - ms);
+  const need = monitorsNeeded(deathsPer100k, pop, ms, t0);
   if (need <= 0) return '';
   const raised = ms * PRICE.low_cost, goal = (ms + need) * PRICE.low_cost, stillNeed = need * PRICE.low_cost;
   const pct = goal ? Math.round((raised / goal) * 100) : 0;
@@ -358,9 +355,10 @@ async function loadSeries(name: string) {
 
 function closeInfo() {
   infoOpen.value = false;
-  if (selName && choroLayer) choroLayer.resetFeatureStyle(selName);
+  if (selLayer) selLayer.setStyle(vgStyle(selDeaths, false));
   selName = null;
   selDeaths = null;
+  selLayer = null;
 }
 
 // ---- layer toggles ----
@@ -471,25 +469,32 @@ onMounted(async () => {
     if (saved === 'th' || saved === 'en') setLang(saved);
   } catch { /* ignore */ }
 
-  // load data from the API (choropleth comes from Martin vector tiles, not GeoJSON)
-  const [monitors, density, gstats] = await Promise.all([
-    api.get<Monitor[]>('/monitors'),
-    api.get<CountryDensity[]>('/density'),
-    api.get<GlobalStats>('/stats/global'),
-  ]);
-  MONITORS = monitors;
-  for (const d of density) densityByCountry.set(d.country, d);
-  stats = gstats;
+  // load data from the API (choropleth comes from Martin vector tiles, not GeoJSON). The basemap
+  // is already up; if the API is unreachable, surface it and leave the map usable rather than
+  // throwing an unhandled rejection.
+  try {
+    const [monitors, density, gstats] = await Promise.all([
+      api.get<Monitor[]>('/monitors'),
+      api.get<CountryDensity[]>('/density'),
+      api.get<GlobalStats>('/stats/global'),
+    ]);
+    MONITORS = monitors;
+    for (const d of density) densityByCountry.set(d.country, d);
+    stats = gstats;
 
-  // manufacturers + filters
-  manufacturers.value = [...new Set(MONITORS.map((m) => m.manufacturer))].sort();
-  for (const mf of manufacturers.value) filterMfg[mf] = true;
+    // manufacturers + filters
+    manufacturers.value = [...new Set(MONITORS.map((m) => m.manufacturer))].sort();
+    for (const mf of manufacturers.value) filterMfg[mf] = true;
 
-  await buildChoropleth();
-  rebuildMonitors();
-  updatePill();
-  installTooltips();
-  installSparkHover();
+    await buildChoropleth();
+    rebuildMonitors();
+    updatePill();
+    installTooltips();
+    installSparkHover();
+  } catch (err) {
+    console.error('[dashboard] initial data load failed:', err);
+    loadError.value = true;
+  }
 
   setTimeout(() => { const el = document.getElementById('toast'); if (el) el.style.display = 'none'; }, 6000);
 });
@@ -677,9 +682,14 @@ function installSparkHover() {
   <div class="body">
     <div id="map" ref="mapEl" />
 
-    <div class="toast" id="toast">
+    <div class="toast" id="toast" v-show="!loadError">
       <span class="k">{{ t('Tip', 'คลิก') }}</span>
       <span>{{ t('Click a country for its death toll & monitoring, or an AQI pin for a monitor', 'คลิกประเทศเพื่อดูจำนวนผู้เสียชีวิตและการตรวจวัด หรือคลิกหมุด AQI เพื่อดูเครื่องตรวจ') }}</span>
+    </div>
+
+    <div class="toast err" id="loaderr" v-if="loadError">
+      <span class="k">{{ t('Offline', 'ออฟไลน์') }}</span>
+      <span>{{ t('Could not load live data — showing the map without monitors. Please retry shortly.', 'โหลดข้อมูลสดไม่ได้ — แสดงแผนที่โดยไม่มีเครื่องตรวจ กรุณาลองใหม่อีกครั้ง') }}</span>
     </div>
 
     <aside class="panel filters" v-show="filtersOpen">

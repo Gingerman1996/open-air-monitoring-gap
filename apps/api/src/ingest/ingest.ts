@@ -10,7 +10,10 @@
  *
  *   npm run ingest         # or INGEST_ON_START=true at boot
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Pool, PoolClient } from 'pg';
+import { aqiFromPm } from '../common/metrics';
 
 const AG_BASE = process.env.AIRGRADIENT_MAP_API ?? 'https://map-data.airgradient.com/map/api/v1';
 const FRESH_MS = 48 * 3600 * 1000; // a sensor reading newer than this counts as "online"
@@ -34,13 +37,25 @@ interface UrbanCenter {
   locationCount: number | null;
 }
 
-function aqiFromPm(p: number): number {
-  const bp = [
-    [0, 12, 0, 50], [12.1, 35.4, 51, 100], [35.5, 55.4, 101, 150],
-    [55.5, 150.4, 151, 200], [150.5, 250.4, 201, 300], [250.5, 500, 301, 500],
-  ];
-  for (const [cl, ch, al, ah] of bp) if (p <= ch) return Math.round(((ah - al) / (ch - cl)) * (p - cl) + al);
-  return 500;
+function findFile(candidates: string[]): string {
+  for (const c of candidates) if (c && existsSync(c)) return c;
+  throw new Error(`file not found in: ${candidates.join(', ')}`);
+}
+
+/**
+ * ISO 3166-1 alpha-2 → numeric, so an AirGradient city's `countryCode` (iso2, which it always
+ * carries) maps to `countries.iso_n3` — a code join that survives the AG/world-atlas name
+ * differences ("United States" vs "United States of America", "México" vs "Mexico").
+ */
+function loadIso2ToN3(): Record<string, number> {
+  const path = findFile([
+    process.env.ISO3166_ALPHA2_PATH ?? '',
+    resolve(__dirname, '../../../../db/data/iso3166-alpha2.json'),
+    resolve(process.cwd(), '../../db/data/iso3166-alpha2.json'),
+    resolve(process.cwd(), 'db/data/iso3166-alpha2.json'),
+    '/app/db/data/iso3166-alpha2.json',
+  ]);
+  return JSON.parse(readFileSync(path, 'utf8')) as Record<string, number>;
 }
 
 async function fetchPaged<T>(path: string, key: 'data' | 'items'): Promise<T[]> {
@@ -100,30 +115,51 @@ async function insertMonitors(client: PoolClient, rows: Measurement[], now: numb
   return inserted;
 }
 
-async function insertUrbanCenters(client: PoolClient, cities: UrbanCenter[]): Promise<void> {
+async function insertUrbanCenters(
+  client: PoolClient,
+  cities: UrbanCenter[],
+  iso2ToN3: Record<string, number>,
+  n3ToCountry: Map<number, { id: number; rate: number | null }>,
+  log: (m: string) => void,
+): Promise<void> {
+  // Cities carry no coordinates, so attach each to its country by iso2 → numeric → countries.iso_n3,
+  // and inherit that country's latest PM2.5 death rate (per-city GBD rates don't exist). A city whose
+  // code has no 110m polygon (micro-states) or no GBD row keeps a null rate — surfaced below, not silent.
+  const resolveCountry = (iso2: string | null) => {
+    const n3 = iso2 ? iso2ToN3[iso2] : undefined;
+    return n3 != null ? n3ToCountry.get(n3) : undefined;
+  };
+  const unresolved = new Set<string>();
+
   for (let i = 0; i < cities.length; i += 800) {
     const chunk = cities.slice(i, i + 800);
+    const matched = chunk.map((c) => resolveCountry(c.countryCode));
+    matched.forEach((m, j) => {
+      if (!m && chunk[j].countryCode) unresolved.add(chunk[j].countryCode as string);
+    });
 
     // urban_centers catalog (direct VALUES so column types are inferred from the target)
     const uvals: unknown[] = [];
     const utuples = chunk.map((c, j) => {
-      const b = j * 5;
-      uvals.push(c.cityName, c.countryName, c.countryCode, c.population, c.averagePm25);
-      return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5})`;
+      const b = j * 7;
+      const m = matched[j];
+      uvals.push(c.cityName, c.countryName, c.countryCode, c.population, c.averagePm25, m?.id ?? null, m?.rate ?? null);
+      return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7})`;
     });
     await client.query(
-      `INSERT INTO urban_centers (name, country_name, iso2, population, avg_pm25) VALUES ${utuples.join(',')}`,
+      `INSERT INTO urban_centers (name, country_name, iso2, population, avg_pm25, country_id, deaths_per_100k)
+       VALUES ${utuples.join(',')}`,
       uvals,
     );
 
     // density_stats city rows straight from the API counts (no per-monitor city mapping needed)
     const dvals: unknown[] = [];
     const dtuples = chunk.map((c, j) => {
-      const b = j * 6;
+      const b = j * 7;
       const loc = c.locationCount ?? 0;
       const per100k = c.population && c.population > 0 ? +((loc / (c.population / 100000)).toFixed(3)) : null;
-      dvals.push(c.cityName, c.countryName, c.population, loc, c.averagePm25, per100k);
-      return `('city',$${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 4},$${b + 5},$${b + 6},NULL,NULL)`;
+      dvals.push(c.cityName, c.countryName, c.population, loc, c.averagePm25, per100k, matched[j]?.rate ?? null);
+      return `('city',$${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 4},$${b + 5},$${b + 6},$${b + 7},NULL)`;
     });
     await client.query(
       `INSERT INTO density_stats
@@ -132,6 +168,9 @@ async function insertUrbanCenters(client: PoolClient, cities: UrbanCenter[]): Pr
        ON CONFLICT (scope_type, scope_name) DO NOTHING`,
       dvals,
     );
+  }
+  if (unresolved.size) {
+    log(`WARN ${unresolved.size} city country codes had no polygon/health match (blank rate): ${[...unresolved].sort().join(',')}`);
   }
 }
 
@@ -142,6 +181,7 @@ export async function runIngest(): Promise<void> {
   });
   const log = (m: string) => console.log(`[ingest] ${m}`);
   const now = Date.now();
+  const iso2ToN3 = loadIso2ToN3(); // fail fast before any network/DB work if the crosswalk is missing
   try {
     log(`fetching from ${AG_BASE} …`);
     const [measures, cities] = await Promise.all([
@@ -214,7 +254,22 @@ export async function runIngest(): Promise<void> {
          WHERE d.id = q.id`,
       );
 
-      await insertUrbanCenters(client, cities);
+      // map each polygon country (by iso_n3) to its latest PM2.5 death rate, for the city join below
+      const n3ToCountry = new Map<number, { id: number; rate: number | null }>();
+      for (const r of (
+        await client.query<{ id: number; iso_n3: number; rate: number | null }>(
+          `SELECT c.id, c.iso_n3, hi.deaths_per_100k AS rate
+           FROM countries c
+           LEFT JOIN LATERAL (
+             SELECT deaths_per_100k FROM health_impacts h
+             WHERE h.country_id = c.id AND h.pollutant = 'pm25' ORDER BY year DESC LIMIT 1
+           ) hi ON true
+           WHERE c.iso_n3 IS NOT NULL`,
+        )
+      ).rows) {
+        n3ToCountry.set(r.iso_n3, { id: r.id, rate: r.rate });
+      }
+      await insertUrbanCenters(client, cities, iso2ToN3, n3ToCountry, log);
 
       await client.query('COMMIT');
       const [{ n }] = (await client.query<{ n: string }>('SELECT COUNT(*)::text n FROM monitors')).rows;
