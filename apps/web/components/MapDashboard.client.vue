@@ -146,7 +146,7 @@ function popupHtml(m: Monitor) {
   const title = (m.name && m.name.trim()) || m.id;
   return `<div class="mpop"><div class="mt">${title}</div>` +
     `<div class="ms">${m.manufacturer} · ${typeLabel}<br>${m.country} · ${m.owner}</div>` +
-    `<div class="mrow"><span style="width:11px;height:11px;border-radius:50%;background:${aqiColor(m.aqi)};display:inline-block"></span> AQI ${m.aqi} · PM2.5 ${m.pm25}</div>` +
+    `<div class="mrow"><span style="width:11px;height:11px;border-radius:50%;background:${aqiColor(m.aqi)};display:inline-block"></span> ${t('US AQI', 'AQI (US)')} ${m.aqi} · PM2.5 ${m.pm25}</div>` +
     (m.status === 'offline' ? `<div class="mrow off">● ${t('Offline', 'ออฟไลน์')}</div>` : '') +
     `<div class="mhist" data-id="${m.id}"></div>` +
     '</div>';
