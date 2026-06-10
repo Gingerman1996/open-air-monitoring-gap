@@ -70,7 +70,7 @@ export class DensityService {
         gap_level: number | null;
       }>(
         `SELECT c.name, c.population::float AS population,
-                ST_AsGeoJSON(c.geom)::json AS geometry,
+                ST_AsGeoJSON(c.geom, 4)::json AS geometry,
                 hi.deaths::float AS deaths, hi.deaths_per_100k::float AS deaths_per_100k,
                 ds.monitors_total, ds.gap_ratio::float AS gap_ratio, ds.gap_level
          FROM countries c

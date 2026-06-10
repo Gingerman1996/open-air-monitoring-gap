@@ -20,6 +20,7 @@
     "@nestjs/platform-express": "^10.4.4",
     "@nestjs/swagger": "^8.0.1",
     "bullmq": "^5.34.0",
+    "compression": "^1.8.1",
     "ioredis": "^5.4.1",
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@nestjs/cli": "^10.4.5",
     "@nestjs/schematics": "^10.2.3",
+    "@types/compression": "^1.8.1",
     "@types/express": "^5.0.0",
     "@types/geojson": "^7946.0.14",
     "@types/node": "^22.7.4",
