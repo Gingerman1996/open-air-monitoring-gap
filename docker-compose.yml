@@ -78,5 +78,19 @@ services:
       - web
       - api
 
+  # public share tunnel — `NGROK_AUTHTOKEN=… docker compose --profile share up -d ngrok`
+  # one origin is enough: the browser only talks to web:3000, which server-proxies /api.
+  # inspector + current public URL at http://localhost:4040
+  ngrok:
+    image: ngrok/ngrok:latest
+    profiles: ["share"]
+    command: ["http", "web:3000"]
+    environment:
+      NGROK_AUTHTOKEN: "${NGROK_AUTHTOKEN:?set NGROK_AUTHTOKEN to your ngrok auth token}"
+    ports:
+      - "4040:4040"
+    depends_on:
+      - web
+
 volumes:
   pgdata:

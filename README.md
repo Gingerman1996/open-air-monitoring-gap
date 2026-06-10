@@ -33,6 +33,15 @@ npm --prefix apps/api install && npm --prefix apps/api run seed && npm --prefix 
 npm --prefix apps/web install && npm --prefix apps/web run dev
 ```
 
+Share it publicly (demo via [ngrok](https://ngrok.com)) — one tunnel to `web:3000` is enough,
+since Nitro server-proxies `/api` on the same origin:
+
+```bash
+# with the stack already up:
+NGROK_AUTHTOKEN=xxxxx ./scripts/share.sh        # docker `share` profile; prints the public URL
+./scripts/share.sh --host                       # or use a host-installed ngrok + its saved token
+```
+
 ## Features
 
 Health-burden choropleth (PostGIS GeoJSON, `L.geoJSON`) · clustered AQI monitor pins ·
