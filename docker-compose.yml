@@ -10,6 +10,7 @@ services:
     volumes:
       - pgdata:/home/postgres/pgdata/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/timescale.sql:/docker-entrypoint-initdb.d/02-timescale.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openair -d openair"]
       interval: 5s
@@ -37,6 +38,7 @@ services:
       SEED_ON_START: "true"
       REFERENCE_ON_START: "true"
       INGEST_ON_START: "true"
+      TIMESCALE_ON_START: "true"
       INGEST_SCHEDULE: "true"
       INGEST_INTERVAL_MS: "${INGEST_INTERVAL_MS:-600000}"
       REFERENCE_CRON: "${REFERENCE_CRON:-0 0 1 * *}"

@@ -6,7 +6,9 @@
     "dev": "nuxt dev",
     "build": "nuxt build",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "leaflet": "^1.9.4",
@@ -17,6 +19,7 @@
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.12",
-    "@types/leaflet.markercluster": "^1.5.4"
+    "@types/leaflet.markercluster": "^1.5.4",
+    "vitest": "^4.1.8"
   }
 }

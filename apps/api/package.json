@@ -9,7 +9,10 @@
     "start:dev": "nest start --watch",
     "seed": "ts-node -r tsconfig-paths/register src/seed/seed.ts",
     "ingest": "ts-node -r tsconfig-paths/register src/ingest/ingest.ts",
-    "refresh-reference": "ts-node -r tsconfig-paths/register src/ingest/reference.ts"
+    "refresh-reference": "ts-node -r tsconfig-paths/register src/ingest/reference.ts",
+    "timescale": "ts-node -r tsconfig-paths/register src/ingest/timescale.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.4",
@@ -33,6 +36,7 @@
     "@types/topojson-client": "^3.1.5",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.2",
+    "vitest": "^4.1.8"
   }
 }

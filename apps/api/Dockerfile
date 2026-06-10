@@ -16,5 +16,7 @@ COPY db /app/db
 ENV WORLD_ATLAS_PATH=/app/db/data/countries-110m.json
 ENV INIT_SQL_PATH=/app/db/init.sql
 ENV ISO3166_PATH=/app/db/data/iso3166.json
+ENV ISO3166_ALPHA2_PATH=/app/db/data/iso3166-alpha2.json
+ENV TIMESCALE_SQL_PATH=/app/db/timescale.sql
 EXPOSE 3001
 CMD ["node", "dist/main.js"]
