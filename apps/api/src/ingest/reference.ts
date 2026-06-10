@@ -13,7 +13,7 @@
  * 503s under load, so we fan out at a low concurrency with retry/backoff + a sequential mop-up,
  * and refuse to replace the table unless almost every country came back. Everything keys on ISO3
  * alpha → crosswalk to the world-atlas ISO numeric in countries.iso_n3 (db/data/iso3166.json).
- * Rows stay labelled pollutant='pm25' — the label the MVT tiles, density, and API already join on.
+ * Rows stay labelled pollutant='pm25' — the label the choropleth, density, and API already join on.
  *
  *   npm run refresh-reference        # forced; or REFERENCE_ON_START=true at boot (refreshes if newer)
  */

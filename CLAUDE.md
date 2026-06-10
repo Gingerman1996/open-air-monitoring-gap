@@ -21,12 +21,12 @@ when implementing a UI detail.
 | Backend | NestJS · `pg` (node-postgres, raw parameterized SQL) · ioredis |
 | Database | PostgreSQL + PostGIS + **TimescaleDB** (`measurements` hypertable) |
 | Cache | Redis |
-| Tiles | **Martin** (PostGIS → vector tiles) consumed by Leaflet.VectorGrid |
+| Choropleth | `L.geoJSON` fed by `GET /api/v1/density/choropleth` (PostGIS `ST_AsGeoJSON`) |
 | Edge | Nginx (compose profile) |
 | Orchestration | Docker Compose |
 
-Ports: web `3000`, api `3001`, postgres `5432`, redis `6379`, martin `3002`.
-The browser stays same-origin: Nitro proxies `/api/**`→api and `/tiles/**`→martin.
+Ports: web `3000`, api `3001`, postgres `5432`, redis `6379`.
+The browser stays same-origin: Nitro proxies `/api/**`→api.
 
 ## Layout
 

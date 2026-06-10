@@ -504,7 +504,7 @@ onMounted(async () => {
     if (saved === 'th' || saved === 'en') setLang(saved);
   } catch { /* ignore */ }
 
-  // load data from the API (choropleth comes from Martin vector tiles, not GeoJSON). The basemap
+  // load data from the API (the choropleth GeoJSON included). The basemap
   // is already up; if the API is unreachable, surface it and leave the map usable rather than
   // throwing an unhandled rejection.
   try {

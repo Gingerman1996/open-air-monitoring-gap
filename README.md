@@ -12,8 +12,8 @@ monitoring gap is, how many monitors it would take to close it, and what that co
 
 ## Stack
 
-Nuxt 3 + Leaflet + Leaflet.VectorGrid (frontend) · NestJS + node-postgres + BullMQ (API) ·
-PostgreSQL + PostGIS + TimescaleDB · Redis · Martin (PostGIS vector tiles) · Docker Compose.
+Nuxt 3 + Leaflet (frontend) · NestJS + node-postgres + BullMQ (API) ·
+PostgreSQL + PostGIS + TimescaleDB · Redis · Docker Compose.
 See [`spec.md`](./spec.md) for the full system design and [`CLAUDE.md`](./CLAUDE.md) for conventions.
 
 ## Quick start
@@ -35,7 +35,7 @@ npm --prefix apps/web install && npm --prefix apps/web run dev
 
 ## Features
 
-Health-burden choropleth (**PostGIS vector tiles** via Martin) · clustered AQI monitor pins ·
+Health-burden choropleth (PostGIS GeoJSON, `L.geoJSON`) · clustered AQI monitor pins ·
 **per-monitor PM2.5 history** (TimescaleDB, on pin click) · per-country monitoring-gap level (1–5
 quintile) · deaths trend 1990–2023 · monitors-needed + cost + donation maths · filters · story
 mode · CSV export (4 datasets) · EN/TH.

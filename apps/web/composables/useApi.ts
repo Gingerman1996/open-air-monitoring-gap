@@ -2,7 +2,6 @@
 export function useApi() {
   const cfg = useRuntimeConfig().public;
   const base = cfg.apiBase;
-  const tileBase = cfg.tileBase;
 
   const get = <T>(path: string): Promise<T> => $fetch<T>(`${base}${path}`);
 
@@ -11,5 +10,5 @@ export function useApi() {
     return `${base}/export?${qs}`;
   };
 
-  return { base, tileBase, get, exportUrl };
+  return { base, get, exportUrl };
 }
