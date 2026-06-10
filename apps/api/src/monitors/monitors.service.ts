@@ -11,7 +11,8 @@ export interface MonitorFilters {
 const SELECT = `
   SELECT external_id AS id, name, city, country, iso2, manufacturer, type, owner,
          status, pm25::float AS pm25, aqi,
-         ST_Y(location) AS lat, ST_X(location) AS lng
+         round(ST_Y(location)::numeric, 5)::float AS lat,
+         round(ST_X(location)::numeric, 5)::float AS lng
   FROM monitors`;
 
 @Injectable()

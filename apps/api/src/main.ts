@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import compression from 'compression';
 import { AppModule } from './app.module';
 import { runSeed } from './seed/seed';
 import { runReferenceRefresh } from './ingest/reference';
@@ -47,6 +48,9 @@ async function bootstrap(): Promise<void> {
   }
 
   const app = await NestFactory.create(AppModule);
+  // gzip JSON responses — /monitors is ~4 MB raw, choropleth ~330 KB; both compress ~85-90%,
+  // the dominant cost when the app is reached over the network (e.g. the ngrok demo tunnel)
+  app.use(compression());
   app.setGlobalPrefix('api/v1');
   app.enableCors({ origin: process.env.CORS_ORIGIN ?? '*' });
 
