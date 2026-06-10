@@ -301,7 +301,7 @@ async function openCountry(name: string, deathsArg: number | null = null) {
   let body =
     `<div class="metric"><div class="ml">${t('Deaths attributable to PM2.5', 'ผู้เสียชีวิตจาก PM2.5')}${qmark(t('Estimated annual deaths attributable to PM2.5 air pollution — source: State of Global Air / GBD (IHME).', 'ประมาณการผู้เสียชีวิตต่อปีจากมลพิษ PM2.5 — ที่มา: State of Global Air / GBD (IHME)'))}</div>` +
       `<div class="mv">${deaths != null ? fmt(deaths) : '—'} <small>${t('per year', 'ต่อปี')}</small></div>` +
-      (deathsPer100k != null ? `<div class="sub">${deathsPer100k} ${t('per 100k people', 'ต่อแสนคน')}</div>` : '') +
+      (deathsPer100k != null ? `<div class="sub">${deathsPer100k} ${t('per 100k people', 'ต่อแสนคน')}${qmark(t('Annual PM2.5-attributable deaths per 100,000 population — normalised by population so countries of different sizes can be compared. Population: World Bank.', 'ผู้เสียชีวิตจาก PM2.5 ต่อประชากรแสนคนต่อปี — ปรับตามจำนวนประชากรเพื่อให้เทียบระหว่างประเทศที่ขนาดต่างกันได้ · ประชากร: World Bank'))}</div>` : '') +
     '</div>';
 
   if (deaths != null) {
@@ -315,15 +315,15 @@ async function openCountry(name: string, deathsArg: number | null = null) {
 
   if (ms > 0) {
     body +=
-      `<div class="metric"><div class="ml">${t('Monitors in sample', 'เครื่องตรวจในตัวอย่าง')}${qmark(t('Number of public air-quality monitors in this dataset for the country (online + offline).', 'จำนวนเครื่องตรวจวัดคุณภาพอากาศสาธารณะในชุดข้อมูลสำหรับประเทศนี้ (ออนไลน์ + ออฟไลน์)'))}</div>` +
+      `<div class="metric"><div class="ml">${t('Public monitors', 'เครื่องตรวจวัดสาธารณะ')}${qmark(t('Live count of public air-quality monitors in this country (online + offline), pulled from the AirGradient Map API and refreshed every 10 minutes.', 'จำนวนเครื่องตรวจวัดคุณภาพอากาศสาธารณะในประเทศนี้ (ออนไลน์ + ออฟไลน์) ดึงสดจาก AirGradient Map API รีเฟรชทุก 10 นาที'))}</div>` +
         `<div class="mv">${ms} <small>${online} ${t('online', 'ออนไลน์')}</small></div>` +
-        (per100k != null ? `<div class="sub">${per100k} ${t('per 100k people', 'ต่อแสนคน')}</div>` : '') +
+        (per100k != null ? `<div class="sub">${per100k} ${t('per 100k people', 'ต่อแสนคน')}${qmark(t('Public monitors per 100,000 population — the monitoring-density side of the gap calculation. Population: World Bank.', 'เครื่องตรวจวัดสาธารณะต่อประชากรแสนคน — ฝั่งความหนาแน่นการตรวจวัดในสูตรคำนวณ gap · ประชากร: World Bank'))}</div>` : '') +
       '</div>';
     body += gapBlock(lvl, gap);
-    body += investBlock(deathsPer100k, rec?.population ?? null, ms);
+    body += investBlock(name, deathsPer100k, rec?.population ?? null, ms);
   } else {
     body +=
-      `<div class="metric"><div class="ml">${t('Monitors in sample', 'เครื่องตรวจในตัวอย่าง')}</div>` +
+      `<div class="metric"><div class="ml">${t('Public monitors', 'เครื่องตรวจวัดสาธารณะ')}${qmark(t('Live count of public air-quality monitors in this country, pulled from the AirGradient Map API and refreshed every 10 minutes.', 'จำนวนเครื่องตรวจวัดคุณภาพอากาศสาธารณะในประเทศนี้ ดึงสดจาก AirGradient Map API รีเฟรชทุก 10 นาที'))}</div>` +
         `<div class="mv">0</div>` +
         `<div class="sub">${t('No public monitors here — a coverage blind spot.', 'ไม่มีเครื่องตรวจวัดสาธารณะ — จุดบอดของการตรวจวัด')}</div>` +
       '</div>';
@@ -354,7 +354,7 @@ function gapBlock(lvl: number | null, gap: number | null) {
     `<div class="gapdesc">${desc}</div></div>`;
 }
 
-function investBlock(deathsPer100k: number | null, pop: number | null, ms: number) {
+function investBlock(country: string, deathsPer100k: number | null, pop: number | null, ms: number) {
   const t0 = stats?.gap_threshold_lv1;
   if (deathsPer100k == null || !pop || !t0) return '';
   const gap = gapRatio(deathsPer100k, pop, ms);
@@ -372,6 +372,7 @@ function investBlock(deathsPer100k: number | null, pop: number | null, ms: numbe
       `<div class="gf-dh">${t('Donation to fully equip (low-cost)', 'เงินบริจาคเพื่อจัดให้ครบ (ราคาประหยัด)')}</div>` +
       `<div class="donatebar"><i style="width:${pct}%"></i></div>` +
       `<div class="gf-drow"><span>${t('Raised', 'ระดมได้')} ${fmtMoney(raised)} / ${fmtMoney(goal)}</span><b>${t('need', 'ต้องการอีก')} ${fmtMoney(stillNeed)}</b></div>` +
+      `<a class="gf-btn" href="/donate?country=${encodeURIComponent(country)}&need=${need}&cost=${stillNeed}">${t('Donate to close this gap', 'ร่วมบริจาคเพื่อปิดช่องว่างนี้')} →</a>` +
     '</div></div>';
 }
 
@@ -466,6 +467,9 @@ function exitStory() {
 
 // ---- mount ----
 onMounted(async () => {
+  // under the pages router this .client component mounts inside Suspense, where template refs
+  // can still be unresolved when onMounted fires — wait a tick so #map exists before Leaflet
+  if (!mapEl.value) await nextTick();
   map = L.map(mapEl.value!, { zoomControl: false, worldCopyJump: true, minZoom: 2 }).setView([26, 30], 3);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
