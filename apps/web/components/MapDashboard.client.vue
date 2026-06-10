@@ -143,7 +143,8 @@ function monMarker(m: Monitor) {
 }
 function popupHtml(m: Monitor) {
   const typeLabel = t(m.type === 'reference' ? 'Reference' : 'Low-cost', m.type === 'reference' ? 'อ้างอิง' : 'ราคาประหยัด');
-  return `<div class="mpop"><div class="mt">${m.id}</div>` +
+  const title = (m.name && m.name.trim()) || m.id;
+  return `<div class="mpop"><div class="mt">${title}</div>` +
     `<div class="ms">${m.manufacturer} · ${typeLabel}<br>${m.country} · ${m.owner}</div>` +
     `<div class="mrow"><span style="width:11px;height:11px;border-radius:50%;background:${aqiColor(m.aqi)};display:inline-block"></span> AQI ${m.aqi} · PM2.5 ${m.pm25}</div>` +
     (m.status === 'offline' ? `<div class="mrow off">● ${t('Offline', 'ออฟไลน์')}</div>` : '') +
@@ -151,26 +152,56 @@ function popupHtml(m: Monitor) {
     '</div>';
 }
 
-/** small PM2.5-over-time sparkline for a monitor's recent history */
-function pm25Spark(points: { ts: string; pm25: number; aqi: number }[]): string {
+// timestamps stay English in both languages (a technical token, per the bilingual rule)
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const hhmm = (ts: string) => { const d = new Date(ts); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const fmtTs = (ts: string) => { const d = new Date(ts); return `${MON[d.getMonth()]} ${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+
+/** interactive PM2.5-over-time chart for a monitor's recent history (hover via installSparkHover) */
+function pm25Chart(points: { ts: string; pm25: number; aqi: number }[]): string {
   if (points.length < 2) {
-    return `<div style="font-size:10.5px;color:#8B988F;margin-top:6px">${t('PM2.5 history builds every 10 min', 'ประวัติ PM2.5 จะสะสมทุก 10 นาที')}</div>`;
+    return `<div style="font-size:11.5px;color:#8B988F;margin-top:8px">${t('PM2.5 history builds every 10 min', 'ประวัติ PM2.5 จะสะสมทุก 10 นาที')}</div>`;
   }
-  const W = 190, H = 46, pl = 4, pr = 4, pt = 10, pb = 4;
-  const vals = points.map((p) => p.pm25);
-  const max = Math.max(...vals), min = Math.min(...vals), iw = W - pl - pr, ih = H - pt - pb;
-  const X = (i: number) => pl + (iw * i) / (points.length - 1);
-  const Y = (v: number) => pt + ih * (1 - (v - min) / Math.max(max - min, 1));
-  const last = points[points.length - 1];
-  const col = aqiColor(last.aqi);
-  let line = '';
-  points.forEach((p, i) => { line += (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p.pm25).toFixed(1) + ' '; });
-  return `<div style="margin-top:8px">` +
-    `<div style="font-size:10px;color:#8B988F;display:flex;justify-content:space-between">` +
-      `<span>${t('PM2.5 trend', 'แนวโน้ม PM2.5')} · ${points.length} ${t('pts', 'จุด')}</span><span>${last.pm25} µg/m³</span></div>` +
-    `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">` +
-      `<path d="${line}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round"/>` +
-      `<circle cx="${X(points.length - 1).toFixed(1)}" cy="${Y(last.pm25).toFixed(1)}" r="2.4" fill="${col}"/>` +
+  const W = 300, H = 120, pl = 8, pr = 8, pt = 14, pb = 20;
+  const data = points.map((p) => ({ y: fmtTs(p.ts), v: p.pm25 }));
+  const vals = data.map((p) => p.v);
+  const max = Math.max(...vals), min = Math.min(...vals), span = Math.max(max - min, 1);
+  const iw = W - pl - pr, ih = H - pt - pb;
+  const X = (i: number) => pl + (iw * i) / (data.length - 1);
+  const Y = (v: number) => pt + ih * (1 - (v - min) / span);
+  const lastIdx = data.length - 1;
+  const col = aqiColor(points[lastIdx].aqi);
+  let line = '', area = 'M' + X(0).toFixed(1) + ' ' + Y(data[0].v).toFixed(1);
+  data.forEach((p, i) => {
+    const x = X(i).toFixed(1), yy = Y(p.v).toFixed(1);
+    line += (i ? 'L' : 'M') + x + ' ' + yy + ' ';
+    area += ' L' + x + ' ' + yy;
+  });
+  area += ' L' + X(lastIdx).toFixed(1) + ' ' + (pt + ih) + ' L' + X(0).toFixed(1) + ' ' + (pt + ih) + ' Z';
+  const tickIdx = [...new Set([0, Math.round(lastIdx / 2), lastIdx])];
+  const xlab = tickIdx.map((i) => {
+    const anchor = i === 0 ? 'start' : i === lastIdx ? 'end' : 'middle';
+    return `<text x="${X(i).toFixed(1)}" y="${H - 5}" font-size="9" fill="#8B988F" text-anchor="${anchor}" font-family="IBM Plex Mono,monospace">${hhmm(points[i].ts)}</text>`;
+  }).join('');
+  const dot = `<circle cx="${X(lastIdx).toFixed(1)}" cy="${Y(data[lastIdx].v).toFixed(1)}" r="3" fill="${col}"/>`;
+  const geo = { W, H, pl, pr, pt, ih, iw, max, min, unit: 'µg/m³', color: col, data };
+  return `<div style="margin-top:10px">` +
+    `<div style="font-size:11px;color:#8B988F;display:flex;justify-content:space-between;margin-bottom:2px">` +
+      `<span>${t('PM2.5 trend', 'แนวโน้ม PM2.5')} · ${data.length} ${t('pts', 'จุด')}</span>` +
+      `<span>${t('latest', 'ล่าสุด')} ${points[lastIdx].pm25} µg/m³</span></div>` +
+    `<svg class="spark" viewBox="0 0 ${W} ${H}" width="100%" style="display:block" data-geo='${JSON.stringify(geo)}'>` +
+      `<path d="${area}" fill="${col}" opacity="0.12"/>` +
+      `<path d="${line}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>${dot}` +
+      `<text x="${pl}" y="${pt - 4}" font-size="9" fill="#8B988F" font-family="IBM Plex Mono,monospace">${max} µg/m³</text>${xlab}` +
+      `<g class="spark-hover" style="display:none">` +
+        `<line class="sh-line" y1="${pt}" y2="${pt + ih}" stroke="${col}" stroke-width="1" stroke-dasharray="3 2" opacity=".6"/>` +
+        `<circle class="sh-dot" r="3.5" fill="#fff" stroke="${col}" stroke-width="2"/>` +
+        `<g class="sh-tipg"><rect class="sh-tip" rx="4" height="30" fill="#14201B"/>` +
+          `<text class="sh-yr" fill="#9fb0a9" font-size="8.5" font-family="IBM Plex Mono,monospace"></text>` +
+          `<text class="sh-val" fill="#fff" font-size="11" font-weight="600" font-family="IBM Plex Mono,monospace"></text></g>` +
+      `</g>` +
+      `<rect class="spark-hit" x="${pl}" y="${pt}" width="${iw}" height="${ih}" fill="transparent" style="cursor:crosshair"/>` +
     `</svg></div>`;
 }
 async function onPopupOpen(e: L.PopupEvent): Promise<void> {
@@ -184,7 +215,7 @@ async function onPopupOpen(e: L.PopupEvent): Promise<void> {
     const hist = await api.get<{ ts: string; pm25: number; aqi: number }[]>(
       `/monitors/${encodeURIComponent(id)}/measurements`,
     );
-    el.innerHTML = pm25Spark(hist.slice().reverse());
+    el.innerHTML = pm25Chart(hist.slice().reverse());
   } catch {
     el.innerHTML = '';
   }
@@ -560,15 +591,18 @@ function installSparkHover() {
     if (!svg) return;
     const g = JSON.parse(svg.getAttribute('data-geo')!) as {
       W: number; pl: number; iw: number; pt: number; ih: number; max: number;
-      data: { y: number; v: number }[];
+      min?: number; unit?: string;
+      data: { y: number | string; v: number }[];
     };
     const r = svg.getBoundingClientRect();
     const vx = ((e.clientX - r.left) / r.width) * g.W;
     let i = Math.round(((vx - g.pl) / g.iw) * (g.data.length - 1));
     i = Math.max(0, Math.min(g.data.length - 1, i));
     const p = g.data[i];
+    const base = g.min ?? 0;
+    const span = g.max - base || 1;
     const x = g.pl + (g.iw * i) / (g.data.length - 1);
-    const y = g.pt + g.ih * (1 - p.v / g.max);
+    const y = g.pt + g.ih * (1 - (p.v - base) / span);
     const hov = svg.querySelector('.spark-hover') as SVGGElement;
     hov.style.display = '';
     (svg.querySelector('.sh-line') as SVGLineElement).setAttribute('x1', String(x));
@@ -579,8 +613,9 @@ function installSparkHover() {
     const val = svg.querySelector('.sh-val') as SVGTextElement;
     const tipR = svg.querySelector('.sh-tip') as SVGRectElement;
     yr.textContent = String(p.y);
-    val.textContent = p.v.toLocaleString();
-    const tw = Math.max(val.getComputedTextLength ? val.getComputedTextLength() : 0, 44) + 14;
+    val.textContent = p.v.toLocaleString() + (g.unit ? ' ' + g.unit : '');
+    const textW = (el: SVGTextElement) => (el.getComputedTextLength ? el.getComputedTextLength() : 0);
+    const tw = Math.max(textW(val), textW(yr), 44) + 14;
     let tx = x - tw / 2;
     tx = Math.max(g.pl, Math.min(tx, g.W - g.pl - tw));
     const ty = Math.max(g.pt, y - 38);
