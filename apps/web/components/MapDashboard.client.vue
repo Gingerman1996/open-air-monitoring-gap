@@ -31,6 +31,11 @@ const sourcesOpen = ref(false);
 const loadError = ref(false);
 const monOn = ref(true);
 const healOn = ref(true);
+const unit = ref<'aqi' | 'pm25'>('aqi'); // value shown on pins/clusters (colors stay AQI-band)
+const setUnit = (u: 'aqi' | 'pm25') => {
+  unit.value = u;
+  try { localStorage.setItem('demo-unit', u); } catch { /* storage unavailable */ }
+};
 const visCount = ref(0);
 const filterType = reactive<Record<string, boolean>>({ low_cost: true, reference: true });
 const filterStatus = reactive<Record<string, boolean>>({ online: true, offline: true });
@@ -133,15 +138,19 @@ function selectCountry(name: string, deaths: number | null, layer: any = null) {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ---- monitors / clusters ----
+/** compact PM2.5 for a 34px pin: 1 decimal under 10, integer above */
+const pmLabel = (v: number) => (v < 10 ? String(Math.round(v * 10) / 10) : String(Math.round(v)));
+
 function monMarker(m: Monitor) {
   const off = m.status === 'offline';
   const icon = L.divIcon({
     className: 'pm-pin',
-    html: `<div class="pm${off ? ' off' : ''}" style="background:${aqiColor(m.aqi)}">${m.aqi}</div>`,
+    html: `<div class="pm${off ? ' off' : ''}" style="background:${aqiColor(m.aqi)}">${unit.value === 'aqi' ? m.aqi : pmLabel(m.pm25)}</div>`,
     iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -15],
   });
-  const mk = L.marker([m.lat, m.lng], { icon }) as L.Marker & { __aqi: number };
+  const mk = L.marker([m.lat, m.lng], { icon }) as L.Marker & { __aqi: number; __pm: number };
   mk.__aqi = m.aqi;
+  mk.__pm = m.pm25;
   mk.bindPopup(popupHtml(m), { closeButton: false });
   return mk;
 }
@@ -486,15 +495,19 @@ onMounted(async () => {
   cluster = L.markerClusterGroup({
     maxClusterRadius: 48, showCoverageOnHover: false, chunkedLoading: true,
     iconCreateFunction: (cl) => {
-      const kids = cl.getAllChildMarkers() as Array<L.Marker & { __aqi?: number }>;
-      let s = 0; for (const k of kids) s += k.__aqi ?? 0;
-      const avg = Math.round(s / Math.max(kids.length, 1));
-      const col = aqiColor(avg);
-      const n = cl.getChildCount();
-      const w = n < 10 ? 36 : n < 50 ? 44 : n < 200 ? 52 : 60;
+      const kids = cl.getAllChildMarkers() as Array<L.Marker & { __aqi?: number; __pm?: number }>;
+      let sa = 0, sp = 0;
+      for (const k of kids) { sa += k.__aqi ?? 0; sp += k.__pm ?? 0; }
+      const n = Math.max(kids.length, 1);
+      const avgAqi = Math.round(sa / n);
+      const col = aqiColor(avgAqi); // color always by AQI band, whatever the displayed unit
+      const label = unit.value === 'aqi' ? String(avgAqi) : pmLabel(sp / n);
+      const unitTitle = unit.value === 'aqi' ? t('avg US AQI', 'US AQI เฉลี่ย') : t('avg PM2.5 µg/m³', 'PM2.5 เฉลี่ย µg/m³');
+      const cnt = cl.getChildCount();
+      const w = cnt < 10 ? 36 : cnt < 50 ? 44 : cnt < 200 ? 52 : 60;
       return L.divIcon({
         className: 'pm-cluster',
-        html: `<div class="cl" style="width:${w}px;height:${w}px;background:${col};box-shadow:0 0 0 6px ${col}44,0 2px 7px rgba(20,32,27,.3)" title="${n} ${t('sensors', 'เครื่อง')} · ${t('avg AQI', 'AQI เฉลี่ย')}">${avg}</div>`,
+        html: `<div class="cl" style="width:${w}px;height:${w}px;background:${col};box-shadow:0 0 0 6px ${col}44,0 2px 7px rgba(20,32,27,.3)" title="${cnt} ${t('sensors', 'เครื่อง')} · ${unitTitle}">${label}</div>`,
         iconSize: [w, w],
       });
     },
@@ -502,10 +515,12 @@ onMounted(async () => {
   healthLayer.addTo(map);
   cluster.addTo(map);
 
-  // restore language
+  // restore language + pin unit
   try {
     const saved = localStorage.getItem('demo-lang');
     if (saved === 'th' || saved === 'en') setLang(saved);
+    const savedUnit = localStorage.getItem('demo-unit');
+    if (savedUnit === 'aqi' || savedUnit === 'pm25') unit.value = savedUnit;
   } catch { /* ignore */ }
 
   // load data from the API (the choropleth GeoJSON included). The basemap
@@ -553,6 +568,8 @@ const cntOffline = computed(() => MONITORS.filter((m) => m.status === 'offline')
 const cntMfg = (mf: string) => MONITORS.filter((m) => m.manufacturer === mf).length;
 
 watch([filterType, filterStatus, filterMfg], () => { if (cluster) rebuildMonitors(); }, { deep: true });
+// pin/cluster labels carry the unit — re-render markers when it changes
+watch(unit, () => { if (cluster) rebuildMonitors(); });
 
 // ---- instant "?" tooltip (no native-title delay, escapes panel clipping) ----
 function installTooltips() {
@@ -741,6 +758,13 @@ function installSparkHover() {
         <button class="x" @click="filtersOpen = false">×</button>
       </div>
       <div class="fbody">
+        <div class="fgrp">
+          <div class="flabel">{{ t('Pin unit', 'หน่วยบนหมุด') }}</div>
+          <div class="unit-seg">
+            <button :class="{ active: unit === 'aqi' }" @click="setUnit('aqi')">US AQI</button>
+            <button :class="{ active: unit === 'pm25' }" @click="setUnit('pm25')">µg/m³</button>
+          </div>
+        </div>
         <div class="fgrp">
           <div class="flabel">{{ t('Monitor type', 'ประเภทเครื่อง') }}</div>
           <div class="opts">
