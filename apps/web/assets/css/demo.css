@@ -68,8 +68,10 @@ body{font-family:var(--sans);color:var(--ink);background:var(--paper);-webkit-fo
 
 /* ---------- Body ---------- */
 .body{position:relative;flex:1;min-height:0;}
-#map{position:absolute;inset:0;background:#EDEBE4;}
-.leaflet-container{font-family:var(--sans);background:#EDEBE4;}
+/* match the CARTO water colour so the area outside the Web-Mercator world (the polar void shown
+   when zoomed all the way out) blends with the ocean instead of reading as a blank block */
+#map{position:absolute;inset:0;background:#D4DADC;}
+.leaflet-container{font-family:var(--sans);background:#D4DADC;}
 
 /* floating panel base */
 .panel{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);z-index:1000;}

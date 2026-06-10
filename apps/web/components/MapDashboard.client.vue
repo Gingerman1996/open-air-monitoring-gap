@@ -46,9 +46,10 @@ let map: L.Map;
 let cluster: L.MarkerClusterGroup;
 const healthLayer = L.layerGroup();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let choroLayer: any = null; // Leaflet.VectorGrid layer (untyped lib)
+let choroLayer: any = null; // L.geoJSON country-choropleth layer
 let selName: string | null = null;
 let selDeaths: number | null = null;
+let selLayer: any = null; // the currently-highlighted choropleth feature layer
 const seriesCache = new Map<string, { year: number; deaths: number; deaths_per_100k: number }[]>();
 
 // ---- palettes (ported from the prototype) ----
@@ -86,8 +87,9 @@ const fmt = (n: number) => (n >= 1000 ? Math.round(n).toLocaleString() : String(
 const escTip = (s: string) => s.replace(/"/g, '&quot;');
 const qmark = (tip: string) => ` <span class="qmark" tabindex="0" data-tip="${escTip(tip)}">?</span>`;
 
-// ---- choropleth (PostGIS → Martin vector tiles, rendered by Leaflet.VectorGrid) ----
-// deaths are baked into each tile feature, so the colour comes straight off the tile.
+// ---- choropleth (country deaths, rendered as a single Leaflet GeoJSON vector layer) ----
+// Only ~177 polygons (Natural Earth 110m), so a GeoJSON layer is plenty — and unlike the Martin/MVT
+// path it renders antimeridian + polar (Antarctica) polygons correctly instead of leaving them blank.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function vgStyle(deaths: number | null | undefined, sel: boolean) {
   return {
@@ -100,34 +102,28 @@ function vgStyle(deaths: number | null | undefined, sel: boolean) {
   };
 }
 async function buildChoropleth() {
-  (window as any).L = L; // leaflet.vectorgrid is an old UMD that attaches to the global L
-  await import('leaflet.vectorgrid');
-  const VG = (L as any).vectorGrid;
-  choroLayer = VG.protobuf(`${api.tileBase}/country_tiles/{z}/{x}/{y}`, {
-    rendererFactory: (L as any).svg.tile,
-    interactive: true,
-    maxZoom: 19,
-    getFeatureId: (f: any) => f.properties.name,
-    vectorTileLayerStyles: {
-      country_tiles: (props: any) => vgStyle(props.deaths, false),
+  const fc = await api.get<any>('/density/choropleth');
+  choroLayer = (L as any).geoJSON(fc, {
+    style: (f: any) => vgStyle(f.properties.deaths, false),
+    onEachFeature: (f: any, layer: any) => {
+      const { name, deaths } = f.properties;
+      layer.on('click', () => selectCountry(name, deaths ?? null, layer));
+      layer.on('mouseover', () => {
+        if (name !== selName) { layer.setStyle({ fillOpacity: 0.6, weight: 1.4 }); layer.bringToFront(); }
+      });
+      layer.on('mouseout', () => {
+        if (name !== selName) layer.setStyle(vgStyle(deaths, false));
+      });
     },
-  });
-  choroLayer.on('click', (e: any) => selectCountry(e.layer.properties.name, e.layer.properties.deaths ?? null));
-  choroLayer.on('mouseover', (e: any) => {
-    const { name, deaths } = e.layer.properties;
-    if (name !== selName) choroLayer.setFeatureStyle(name, { ...vgStyle(deaths, false), fillOpacity: 0.6, weight: 1.4 });
-  });
-  choroLayer.on('mouseout', (e: any) => {
-    const name = e.layer.properties.name;
-    if (name !== selName) choroLayer.resetFeatureStyle(name);
   });
   healthLayer.addLayer(choroLayer);
 }
-function selectCountry(name: string, deaths: number | null) {
-  if (selName && choroLayer) choroLayer.resetFeatureStyle(selName);
+function selectCountry(name: string, deaths: number | null, layer: any = null) {
+  if (selLayer) selLayer.setStyle(vgStyle(selDeaths, false));
   selName = name;
   selDeaths = deaths;
-  choroLayer?.setFeatureStyle(name, vgStyle(deaths, true));
+  selLayer = layer;
+  if (selLayer) { selLayer.setStyle(vgStyle(deaths, true)); selLayer.bringToFront(); }
   openCountry(name, deaths);
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -359,9 +355,10 @@ async function loadSeries(name: string) {
 
 function closeInfo() {
   infoOpen.value = false;
-  if (selName && choroLayer) choroLayer.resetFeatureStyle(selName);
+  if (selLayer) selLayer.setStyle(vgStyle(selDeaths, false));
   selName = null;
   selDeaths = null;
+  selLayer = null;
 }
 
 // ---- layer toggles ----
@@ -434,18 +431,7 @@ function exitStory() {
 
 // ---- mount ----
 onMounted(async () => {
-  // Clamp the view to the inhabited latitudes that actually carry data. Below ~-58° there are no
-  // real monitors (the only points there are upstream lat/lng-swapped sensors) and Antarctica's
-  // polygon reaches past the Web-Mercator limit (-85.06°) — Leaflet.VectorGrid can't fill that
-  // bottom-tile polygon, so it shows as a blank white block. Bounding the view hides both that
-  // un-renderable region and the empty sub-Mercator void, north and south.
-  map = L.map(mapEl.value!, {
-    zoomControl: false,
-    worldCopyJump: true,
-    minZoom: 2,
-    maxBounds: [[-58, -180], [84, 180]],
-    maxBoundsViscosity: 1.0,
-  }).setView([26, 30], 3);
+  map = L.map(mapEl.value!, { zoomControl: false, worldCopyJump: true, minZoom: 2 }).setView([26, 30], 3);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19,
