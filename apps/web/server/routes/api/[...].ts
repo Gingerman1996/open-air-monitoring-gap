@@ -18,6 +18,8 @@ export default defineEventHandler(async (event) => {
   const headers: Record<string, string> = {};
   const contentType = getRequestHeader(event, 'content-type');
   if (contentType) headers['content-type'] = contentType;
+  const adminToken = getRequestHeader(event, 'x-admin-token');
+  if (adminToken) headers['x-admin-token'] = adminToken;
 
   const body =
     method === 'GET' || method === 'HEAD' ? undefined : await readRawBody(event, false);

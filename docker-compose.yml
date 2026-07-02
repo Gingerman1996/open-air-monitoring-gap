@@ -45,6 +45,8 @@ services:
       REFERENCE_TZ: "${REFERENCE_TZ:-Asia/Bangkok}"
       AIRGRADIENT_MAP_API: "https://map-data.airgradient.com/map/api/v1"
       CORS_ORIGIN: "*"
+      ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
+      DONATIONS_ENABLED: "${DONATIONS_ENABLED:-true}"
     ports:
       - "3001:3001"
     depends_on:

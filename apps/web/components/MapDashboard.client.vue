@@ -255,7 +255,9 @@ function rebuildMonitors() {
 }
 
 // ---- donations (demo) ----
+const { donationsEnabled } = useSiteConfig();
 async function loadDonations() {
+  if (!donationsEnabled.value) return;
   try {
     const [top, raised] = await Promise.all([
       api.get<{ donor_name: string; total: number; gifts: number }[]>('/donations/top?limit=8'),
@@ -402,13 +404,16 @@ function investBlock(country: string, deathsPer100k: number | null, pop: number 
     `<div class="gf-need">+${need.toLocaleString()} <small>${t('monitors', 'เครื่อง')}</small></div>` +
     `<div class="gf-opt"><span><i class="d good"></i>${t('Low-cost', 'ราคาประหยัด')} × ${fmtMoney(PRICE.low_cost)}</span><b>${fmtMoney(need * PRICE.low_cost)}</b></div>` +
     `<div class="gf-opt"><span><i class="d ref"></i>${t('Reference', 'อ้างอิง')} × ${fmtMoney(PRICE.reference)}</span><b>${fmtMoney(need * PRICE.reference)}</b></div>` +
-    '<div class="gf-donate">' +
-      `<div class="gf-dh">${t('Donation to fully equip (low-cost)', 'เงินบริจาคเพื่อจัดให้ครบ (ราคาประหยัด)')}</div>` +
-      `<div class="donatebar"><i style="width:${pct}%"></i></div>` +
-      `<div class="gf-drow"><span>${t('Raised', 'ระดมได้')} ${fmtMoney(raised)} / ${fmtMoney(goal)}</span><b>${t('need', 'ต้องการอีก')} ${fmtMoney(stillNeed)}</b></div>` +
-      (donated > 0 ? `<div class="gf-donated">${t('incl.', 'รวม')} ${fmtMoney(donated)} ${t('from donors', 'จากผู้บริจาค')} ♥</div>` : '') +
-      `<a class="gf-btn" href="/donate?country=${encodeURIComponent(country)}&need=${need}&cost=${stillNeed}">${t('Donate to close this gap', 'ร่วมบริจาคเพื่อปิดช่องว่างนี้')} →</a>` +
-    '</div></div>';
+    (donationsEnabled.value
+      ? '<div class="gf-donate">' +
+        `<div class="gf-dh">${t('Donation to fully equip (low-cost)', 'เงินบริจาคเพื่อจัดให้ครบ (ราคาประหยัด)')}</div>` +
+        `<div class="donatebar"><i style="width:${pct}%"></i></div>` +
+        `<div class="gf-drow"><span>${t('Raised', 'ระดมได้')} ${fmtMoney(raised)} / ${fmtMoney(goal)}</span><b>${t('need', 'ต้องการอีก')} ${fmtMoney(stillNeed)}</b></div>` +
+        (donated > 0 ? `<div class="gf-donated">${t('incl.', 'รวม')} ${fmtMoney(donated)} ${t('from donors', 'จากผู้บริจาค')} ♥</div>` : '') +
+        `<a class="gf-btn" href="/donate?country=${encodeURIComponent(country)}&need=${need}&cost=${stillNeed}">${t('Donate to close this gap', 'ร่วมบริจาคเพื่อปิดช่องว่างนี้')} →</a>` +
+        '</div>'
+      : '') +
+    '</div>';
 }
 
 async function loadSeries(name: string) {
@@ -760,7 +765,7 @@ function installSparkHover() {
         </a>
       </div>
     </div>
-    <div class="exportwrap">
+    <div v-if="donationsEnabled" class="exportwrap">
       <button class="btn" @click.stop="donorsOpen = !donorsOpen; exportOpen = false; sourcesOpen = false">
         <span class="ic">♥</span><span class="lbl">{{ t('Supporters', 'ผู้สนับสนุน') }}</span>
       </button>

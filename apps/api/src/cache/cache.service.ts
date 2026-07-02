@@ -46,6 +46,29 @@ export class CacheService implements OnModuleDestroy {
     return value;
   }
 
+  /** Persistent read of a raw string; null if missing or Redis is down. */
+  async get(key: string): Promise<string | null> {
+    if (!this.connected) return null;
+    try {
+      return await this.redis.get(key);
+    } catch (err) {
+      this.logger.warn(`get failed for ${key}: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /** Persistent write (no expiry). Returns false if Redis is down so callers can surface it. */
+  async set(key: string, value: string): Promise<boolean> {
+    if (!this.connected) return false;
+    try {
+      await this.redis.set(key, value);
+      return true;
+    } catch (err) {
+      this.logger.warn(`set failed for ${key}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
   async onModuleDestroy(): Promise<void> {
     this.redis.disconnect();
   }

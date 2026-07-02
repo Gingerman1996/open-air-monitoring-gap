@@ -47,6 +47,8 @@ services:
       REFERENCE_TZ: "${REFERENCE_TZ:-Asia/Bangkok}"
       AIRGRADIENT_MAP_API: "${AIRGRADIENT_MAP_API:-https://map-data.airgradient.com/map/api/v1}"
       CORS_ORIGIN: "${CORS_ORIGIN:-*}"
+      ADMIN_TOKEN: "${ADMIN_TOKEN:?set ADMIN_TOKEN in .env.int}"
+      DONATIONS_ENABLED: "${DONATIONS_ENABLED:-true}"
     depends_on:
       postgres:
         condition: service_healthy

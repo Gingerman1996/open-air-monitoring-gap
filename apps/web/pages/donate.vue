@@ -1,4 +1,5 @@
 <script setup lang="ts">
+definePageMeta({ middleware: 'donations-enabled' });
 const { lang, setLang, t } = useLang();
 const api = useApi();
 const route = useRoute();
