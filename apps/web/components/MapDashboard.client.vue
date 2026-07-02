@@ -247,11 +247,17 @@ function rebuildMonitors() {
   const list = currentMonitors();
   for (const m of list) cluster.addLayer(monMarker(m));
   visCount.value = list.length;
+  cntOnline.value = MONITORS.filter((m) => m.status === 'online').length;
+  cntOffline.value = MONITORS.filter((m) => m.status === 'offline').length;
+  cntLowCost.value = MONITORS.filter((m) => m.type === 'low_cost').length;
+  cntReference.value = MONITORS.filter((m) => m.type === 'reference').length;
   updatePill();
 }
 
 // ---- donations (demo) ----
+const { donationsEnabled } = useSiteConfig();
 async function loadDonations() {
+  if (!donationsEnabled.value) return;
   try {
     const [top, raised] = await Promise.all([
       api.get<{ donor_name: string; total: number; gifts: number }[]>('/donations/top?limit=8'),
@@ -398,13 +404,16 @@ function investBlock(country: string, deathsPer100k: number | null, pop: number 
     `<div class="gf-need">+${need.toLocaleString()} <small>${t('monitors', 'เครื่อง')}</small></div>` +
     `<div class="gf-opt"><span><i class="d good"></i>${t('Low-cost', 'ราคาประหยัด')} × ${fmtMoney(PRICE.low_cost)}</span><b>${fmtMoney(need * PRICE.low_cost)}</b></div>` +
     `<div class="gf-opt"><span><i class="d ref"></i>${t('Reference', 'อ้างอิง')} × ${fmtMoney(PRICE.reference)}</span><b>${fmtMoney(need * PRICE.reference)}</b></div>` +
-    '<div class="gf-donate">' +
-      `<div class="gf-dh">${t('Donation to fully equip (low-cost)', 'เงินบริจาคเพื่อจัดให้ครบ (ราคาประหยัด)')}</div>` +
-      `<div class="donatebar"><i style="width:${pct}%"></i></div>` +
-      `<div class="gf-drow"><span>${t('Raised', 'ระดมได้')} ${fmtMoney(raised)} / ${fmtMoney(goal)}</span><b>${t('need', 'ต้องการอีก')} ${fmtMoney(stillNeed)}</b></div>` +
-      (donated > 0 ? `<div class="gf-donated">${t('incl.', 'รวม')} ${fmtMoney(donated)} ${t('from donors', 'จากผู้บริจาค')} ♥</div>` : '') +
-      `<a class="gf-btn" href="/donate?country=${encodeURIComponent(country)}&need=${need}&cost=${stillNeed}">${t('Donate to close this gap', 'ร่วมบริจาคเพื่อปิดช่องว่างนี้')} →</a>` +
-    '</div></div>';
+    (donationsEnabled.value
+      ? '<div class="gf-donate">' +
+        `<div class="gf-dh">${t('Donation to fully equip (low-cost)', 'เงินบริจาคเพื่อจัดให้ครบ (ราคาประหยัด)')}</div>` +
+        `<div class="donatebar"><i style="width:${pct}%"></i></div>` +
+        `<div class="gf-drow"><span>${t('Raised', 'ระดมได้')} ${fmtMoney(raised)} / ${fmtMoney(goal)}</span><b>${t('need', 'ต้องการอีก')} ${fmtMoney(stillNeed)}</b></div>` +
+        (donated > 0 ? `<div class="gf-donated">${t('incl.', 'รวม')} ${fmtMoney(donated)} ${t('from donors', 'จากผู้บริจาค')} ♥</div>` : '') +
+        `<a class="gf-btn" href="/donate?country=${encodeURIComponent(country)}&need=${need}&cost=${stillNeed}">${t('Donate to close this gap', 'ร่วมบริจาคเพื่อปิดช่องว่างนี้')} →</a>` +
+        '</div>'
+      : '') +
+    '</div>';
 }
 
 async function loadSeries(name: string) {
@@ -584,10 +593,10 @@ watch(lang, () => {
 });
 
 // counts for the filter UI
-const cntLowCost = computed(() => MONITORS.filter((m) => m.type === 'low_cost').length);
-const cntReference = computed(() => MONITORS.filter((m) => m.type === 'reference').length);
-const cntOnline = computed(() => MONITORS.filter((m) => m.status === 'online').length);
-const cntOffline = computed(() => MONITORS.filter((m) => m.status === 'offline').length);
+const cntLowCost = ref(0);
+const cntReference = ref(0);
+const cntOnline = ref(0);
+const cntOffline = ref(0);
 const cntMfg = (mf: string) => MONITORS.filter((m) => m.manufacturer === mf).length;
 
 watch([filterType, filterStatus, filterMfg], () => { if (cluster) rebuildMonitors(); }, { deep: true });
@@ -686,7 +695,7 @@ function installSparkHover() {
   <header class="hdr">
     <div class="brand">
       <div class="logo-wrap" id="logoWrap">
-        <img class="brand-logo" src="/logo-colored.png" alt="Open Air Foundation" />
+        <img class="brand-logo" :src="useAssetUrl('/logo-colored.png')" alt="Open Air Foundation" />
       </div>
       <div class="brand-divider" />
       <div>
@@ -756,7 +765,7 @@ function installSparkHover() {
         </a>
       </div>
     </div>
-    <div class="exportwrap">
+    <div v-if="donationsEnabled" class="exportwrap">
       <button class="btn" @click.stop="donorsOpen = !donorsOpen; exportOpen = false; sourcesOpen = false">
         <span class="ic">♥</span><span class="lbl">{{ t('Supporters', 'ผู้สนับสนุน') }}</span>
       </button>

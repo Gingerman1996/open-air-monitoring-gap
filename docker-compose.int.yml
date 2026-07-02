@@ -1,12 +1,16 @@
+# Integration stack for the AG Docker host — https://tools.airgradient.net/openair-int
+# Deployed by ./deploy.sh int. Same shape as docker-compose.prod.yml; only the
+# defaults differ (int sub-path + loopback port) so int and prod can coexist on one host.
+# `name:` keeps int and prod in separate Compose projects (see docker-compose.prod.yml).
+name: openair-int
 services:
   postgres:
     image: timescale/timescaledb-ha:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: openair
-      POSTGRES_PASSWORD: openair
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.int}
       POSTGRES_DB: openair
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/home/postgres/pgdata/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -19,12 +23,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     # AOF persistence so the runtime feature flags (e.g. donations on/off) survive a restart
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -35,8 +38,9 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://openair:openair@postgres:5432/openair
+      DATABASE_URL: postgres://openair:${POSTGRES_PASSWORD}@postgres:5432/openair
       REDIS_URL: redis://redis:6379
       PORT: "3001"
       SEED_ON_START: "true"
@@ -47,12 +51,17 @@ services:
       INGEST_INTERVAL_MS: "${INGEST_INTERVAL_MS:-600000}"
       REFERENCE_CRON: "${REFERENCE_CRON:-0 0 1 * *}"
       REFERENCE_TZ: "${REFERENCE_TZ:-Asia/Bangkok}"
-      AIRGRADIENT_MAP_API: "https://map-data.airgradient.com/map/api/v1"
-      CORS_ORIGIN: "*"
-      ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
+      AIRGRADIENT_MAP_API: "${AIRGRADIENT_MAP_API:-https://map-data.airgradient.com/map/api/v1}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-*}"
+      ADMIN_TOKEN: "${ADMIN_TOKEN:?set ADMIN_TOKEN in .env.int}"
       DONATIONS_ENABLED: "${DONATIONS_ENABLED:-true}"
-    ports:
-      - "3001:3001"
+    # listen() only starts after the boot pipeline (seed → reference → ingest) — see prod
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,43 +72,19 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        APP_BASE_URL: ${APP_BASE_URL:-/openair-int/}
+    restart: unless-stopped
     environment:
-      # browser calls same-origin /api/v1; the Nitro proxy route forwards it to the api container
-      NUXT_PUBLIC_API_BASE: "/api/v1"
-      API_PROXY_TARGET: "http://api:3001"
+      # API base derives from APP_BASE_URL at build — see prod for why it isn't set here
+      APP_BASE_URL: ${APP_BASE_URL:-/openair-int/}
+      API_PROXY_TARGET: http://api:3001
       PORT: "3000"
     ports:
-      - "3000:3000"
+      - "127.0.0.1:${WEB_PORT:-5301}:3000"
     depends_on:
-      - api
-
-  # optional reverse proxy — `docker compose --profile edge up`
-  nginx:
-    image: nginx:alpine
-    profiles: ["edge"]
-    ports:
-      - "8080:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - web
-      - api
-
-  # public share tunnel — `NGROK_AUTHTOKEN=… docker compose --profile share up -d ngrok`
-  # one origin is enough: the browser only talks to web:3000, which server-proxies /api.
-  # inspector + current public URL at http://localhost:4040
-  ngrok:
-    image: ngrok/ngrok:latest
-    profiles: ["share"]
-    command: ["http", "web:3000"]
-    environment:
-      # soft default so the rest of the stack still runs without it; the ngrok
-      # container fails on its own if the `share` profile is started tokenless
-      NGROK_AUTHTOKEN: "${NGROK_AUTHTOKEN:-}"
-    ports:
-      - "4040:4040"
-    depends_on:
-      - web
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

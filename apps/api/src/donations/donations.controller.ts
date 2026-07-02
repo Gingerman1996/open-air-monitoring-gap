@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiOkResponse, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { DonationsService } from './donations.service';
+import { DonationsEnabledGuard } from '../config/donations-enabled.guard';
 
 interface CreateDonationBody {
   donorName?: unknown;
@@ -12,6 +13,7 @@ const MAX_AMOUNT = 1_000_000_000; // sanity ceiling for the demo
 
 @ApiTags('donations')
 @Controller('donations')
+@UseGuards(DonationsEnabledGuard)
 export class DonationsController {
   constructor(private readonly donations: DonationsService) {}
 

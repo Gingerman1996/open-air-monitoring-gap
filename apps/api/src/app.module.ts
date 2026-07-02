@@ -9,6 +9,7 @@ import { HealthImpactsModule } from './health-impacts/health-impacts.module';
 import { StatsModule } from './stats/stats.module';
 import { ExportModule } from './export/export.module';
 import { DonationsModule } from './donations/donations.module';
+import { ConfigModule } from './config/config.module';
 import { IngestScheduler } from './ingest/ingest.scheduler';
 
 @Module({
@@ -23,6 +24,7 @@ import { IngestScheduler } from './ingest/ingest.scheduler';
     StatsModule,
     ExportModule,
     DonationsModule,
+    ConfigModule,
   ],
   providers: [IngestScheduler],
 })
