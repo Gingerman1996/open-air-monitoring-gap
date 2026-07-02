@@ -247,6 +247,10 @@ function rebuildMonitors() {
   const list = currentMonitors();
   for (const m of list) cluster.addLayer(monMarker(m));
   visCount.value = list.length;
+  cntOnline.value = MONITORS.filter((m) => m.status === 'online').length;
+  cntOffline.value = MONITORS.filter((m) => m.status === 'offline').length;
+  cntLowCost.value = MONITORS.filter((m) => m.type === 'low_cost').length;
+  cntReference.value = MONITORS.filter((m) => m.type === 'reference').length;
   updatePill();
 }
 
@@ -584,10 +588,10 @@ watch(lang, () => {
 });
 
 // counts for the filter UI
-const cntLowCost = computed(() => MONITORS.filter((m) => m.type === 'low_cost').length);
-const cntReference = computed(() => MONITORS.filter((m) => m.type === 'reference').length);
-const cntOnline = computed(() => MONITORS.filter((m) => m.status === 'online').length);
-const cntOffline = computed(() => MONITORS.filter((m) => m.status === 'offline').length);
+const cntLowCost = ref(0);
+const cntReference = ref(0);
+const cntOnline = ref(0);
+const cntOffline = ref(0);
 const cntMfg = (mf: string) => MONITORS.filter((m) => m.manufacturer === mf).length;
 
 watch([filterType, filterStatus, filterMfg], () => { if (cluster) rebuildMonitors(); }, { deep: true });
