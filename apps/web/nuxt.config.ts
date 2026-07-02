@@ -16,6 +16,14 @@ export default defineNuxtConfig({
     baseURL: process.env.APP_BASE_URL || '/',
     head: {
       title: 'Open Air Monitoring Gap',
+      // head links are not baseURL-prefixed automatically, so build the href from the same env
+      link: [
+        {
+          rel: 'icon',
+          type: 'image/png',
+          href: `${(process.env.APP_BASE_URL || '/').replace(/\/+$/, '')}/logo-colored.png`,
+        },
+      ],
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1.0' },
         {

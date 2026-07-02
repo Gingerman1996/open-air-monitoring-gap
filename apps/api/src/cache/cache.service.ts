@@ -12,20 +12,26 @@ export class CacheService implements OnModuleDestroy {
   private readonly redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
-    retryStrategy: () => null,
+    // keep reconnecting with capped backoff: runtime feature flags live here, so a
+    // Redis restart must not permanently sever the connection (reads fall back to
+    // env defaults while down, which would silently undo an admin's toggle)
+    retryStrategy: (times) => Math.min(times * 500, 5000),
   });
   private connected = false;
 
   constructor() {
-    this.redis.connect().then(
-      () => {
-        this.connected = true;
-      },
-      (err) => this.logger.warn(`Redis unavailable, serving uncached: ${err.message}`),
-    );
-    this.redis.on('error', () => {
+    this.redis
+      .connect()
+      .catch((err) => this.logger.warn(`Redis unavailable, serving uncached: ${err.message}`));
+    this.redis.on('ready', () => {
+      this.connected = true;
+    });
+    this.redis.on('close', () => {
+      if (this.connected) this.logger.warn('Redis connection lost, retrying in background');
       this.connected = false;
     });
+    // listener required so retry-loop errors don't crash the process; state is tracked via close/ready
+    this.redis.on('error', () => {});
   }
 
   async wrap<T>(key: string, ttlSeconds: number, loader: () => Promise<T>): Promise<T> {

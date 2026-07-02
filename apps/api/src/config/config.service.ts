@@ -8,10 +8,13 @@ const DONATIONS_KEY = 'config:donations_enabled';
 export class ConfigService {
   constructor(private readonly cache: CacheService) {}
 
-  /** Redis override if set, else the DONATIONS_ENABLED env default (on unless explicitly 'false'). */
+  /** Redis override if set, else the DONATIONS_ENABLED env default (on unless explicitly disabled). */
   async donationsEnabled(): Promise<boolean> {
     const stored = await this.cache.get(DONATIONS_KEY);
-    if (stored === null) return (process.env.DONATIONS_ENABLED ?? 'true') !== 'false';
+    if (stored === null) {
+      const env = (process.env.DONATIONS_ENABLED ?? 'true').trim().toLowerCase();
+      return !['false', '0', 'no', 'off'].includes(env);
+    }
     return stored === 'true';
   }
 

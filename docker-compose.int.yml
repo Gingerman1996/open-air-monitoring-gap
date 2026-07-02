@@ -1,6 +1,8 @@
 # Integration stack for the AG Docker host — https://tools.airgradient.net/openair-int
 # Deployed by ./deploy.sh int. Same shape as docker-compose.prod.yml; only the
 # defaults differ (int sub-path + loopback port) so int and prod can coexist on one host.
+# `name:` keeps int and prod in separate Compose projects (see docker-compose.prod.yml).
+name: openair-int
 services:
   postgres:
     image: timescale/timescaledb-ha:pg16
@@ -22,6 +24,10 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # AOF persistence so the runtime feature flags (e.g. donations on/off) survive a restart
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -49,6 +55,13 @@ services:
       CORS_ORIGIN: "${CORS_ORIGIN:-*}"
       ADMIN_TOKEN: "${ADMIN_TOKEN:?set ADMIN_TOKEN in .env.int}"
       DONATIONS_ENABLED: "${DONATIONS_ENABLED:-true}"
+    # listen() only starts after the boot pipeline (seed → reference → ingest) — see prod
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 300s
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,14 +76,16 @@ services:
         APP_BASE_URL: ${APP_BASE_URL:-/openair-int/}
     restart: unless-stopped
     environment:
+      # API base derives from APP_BASE_URL at build — see prod for why it isn't set here
       APP_BASE_URL: ${APP_BASE_URL:-/openair-int/}
-      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-/openair-int/api/v1}
       API_PROXY_TARGET: http://api:3001
       PORT: "3000"
     ports:
       - "127.0.0.1:${WEB_PORT:-5301}:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:
+  redisdata:
