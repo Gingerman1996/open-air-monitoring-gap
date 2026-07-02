@@ -62,7 +62,7 @@ useHead({ title: 'Donate — Open Air Monitoring Gap' });
   <div class="donate-page">
     <header class="dn-hdr">
       <NuxtLink to="/" class="dn-back">← {{ t('Back to map', 'กลับไปที่แผนที่') }}</NuxtLink>
-      <img class="dn-logo" src="/logo-colored.png" alt="Open Air Foundation" />
+      <img class="dn-logo" :src="useAssetUrl('/logo-colored.png')" alt="Open Air Foundation" />
       <div class="dn-lang">
         <button :class="{ active: lang === 'en' }" @click="setLang('en')">EN</button>
         <button :class="{ active: lang === 'th' }" @click="setLang('th')">ไทย</button>

@@ -11,6 +11,9 @@ export default defineNuxtConfig({
     '~/assets/css/demo.css',
   ],
   app: {
+    // sub-path the app is served under (e.g. /openair/ on tools.airgradient.net); '/' locally.
+    // baked from the APP_BASE_URL build arg — prefixes the router, assets and the /api proxy route.
+    baseURL: process.env.APP_BASE_URL || '/',
     head: {
       title: 'Open Air Monitoring Gap',
       meta: [
@@ -26,7 +29,10 @@ export default defineNuxtConfig({
   // big JSON — the routeRules proxy couldn't, undici decompressed it on the way through).
   runtimeConfig: {
     public: {
-      apiBase: process.env.NUXT_PUBLIC_API_BASE ?? '/api/v1',
+      // defaults to <baseURL>/api/v1 so a sub-path deploy just works; override with NUXT_PUBLIC_API_BASE.
+      apiBase:
+        process.env.NUXT_PUBLIC_API_BASE ??
+        `${(process.env.APP_BASE_URL || '/').replace(/\/+$/, '')}/api/v1`,
     },
   },
 });

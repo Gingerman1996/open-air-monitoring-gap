@@ -690,7 +690,7 @@ function installSparkHover() {
   <header class="hdr">
     <div class="brand">
       <div class="logo-wrap" id="logoWrap">
-        <img class="brand-logo" src="/logo-colored.png" alt="Open Air Foundation" />
+        <img class="brand-logo" :src="useAssetUrl('/logo-colored.png')" alt="Open Air Foundation" />
       </div>
       <div class="brand-divider" />
       <div>

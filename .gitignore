@@ -13,6 +13,14 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.production.example
+!.env.int.example
+
+# deploy version stamp (written by deploy.sh on the host)
+version.json
+
+# deploy script — host-local only, never committed
+/deploy.sh
 
 # logs
 *.log

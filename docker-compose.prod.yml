@@ -1,0 +1,77 @@
+# Production stack for the AG Docker host — https://tools.airgradient.net/openair
+# Deployed by ./deploy.sh prod (git pull → version.json → build → up).
+# Only `web` is published, and only to 127.0.0.1 so the host's front reverse-proxy
+# (TLS + /openair/ routing) can reach it; postgres, redis and api stay on the
+# internal compose network. The front proxy MUST pass the /openair prefix through.
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openair
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: openair
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./db/timescale.sql:/docker-entrypoint-initdb.d/02-timescale.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openair -d openair"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://openair:${POSTGRES_PASSWORD}@postgres:5432/openair
+      REDIS_URL: redis://redis:6379
+      PORT: "3001"
+      SEED_ON_START: "true"
+      REFERENCE_ON_START: "true"
+      INGEST_ON_START: "true"
+      TIMESCALE_ON_START: "true"
+      INGEST_SCHEDULE: "true"
+      INGEST_INTERVAL_MS: "${INGEST_INTERVAL_MS:-600000}"
+      REFERENCE_CRON: "${REFERENCE_CRON:-0 0 1 * *}"
+      REFERENCE_TZ: "${REFERENCE_TZ:-Asia/Bangkok}"
+      AIRGRADIENT_MAP_API: "${AIRGRADIENT_MAP_API:-https://map-data.airgradient.com/map/api/v1}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-*}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        APP_BASE_URL: ${APP_BASE_URL:-/openair/}
+    restart: unless-stopped
+    environment:
+      # browser calls same-origin <base>/api/v1; the Nitro proxy strips <base> and forwards to api
+      APP_BASE_URL: ${APP_BASE_URL:-/openair/}
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-/openair/api/v1}
+      API_PROXY_TARGET: http://api:3001
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:${WEB_PORT:-5300}:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
