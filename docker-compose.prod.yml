@@ -6,7 +6,8 @@
 # `name:` keeps prod and int in separate Compose projects — without it both env
 # stacks resolve to the directory-derived project and clobber each other's
 # containers and pgdata/redisdata volumes.
-name: openair-prod
+name: openair
+
 services:
   postgres:
     image: timescale/timescaledb-ha:pg16
@@ -82,17 +83,29 @@ services:
     restart: unless-stopped
     environment:
       # browser calls same-origin <base>/api/v1 (derived from APP_BASE_URL at build);
-      # the Nitro proxy strips <base> and forwards to api. NUXT_PUBLIC_API_BASE is only
-      # for overriding that derivation — don't set it here or the two can drift.
+        # the Nitro proxy strips <base> and forwards to api. NUXT_PUBLIC_API_BASE is only
+        # for overriding that derivation — don't set it here or the two can drift.
       APP_BASE_URL: ${APP_BASE_URL:-/openair/}
       API_PROXY_TARGET: http://api:3001
-      PORT: "3000"
+      PORT: "5600"
     ports:
-      - "127.0.0.1:${WEB_PORT:-5300}:3000"
+      - "127.0.0.1:${WEB_PORT:-5600}:5600"
     depends_on:
       api:
         condition: service_healthy
+    networks:
+      default:
+      app-network:
+        aliases:
+          - openair
 
 volumes:
   pgdata:
   redisdata:
+
+networks:
+  default:
+    name: openair_internal
+  app-network:
+    external: true
+    name: app-network
